@@ -1,6 +1,10 @@
 resource "aws_db_subnet_group" "db_subnets" {
-  name          = "main-db-subnet-group"
-  subnet_ids    = [ aws_subnet.private_1.id ]
+  name       = "main-db-subnet-group"
+  
+  subnet_ids = [
+    aws_subnet.private_1.id, 
+    aws_subnet.private_2.id
+  ]
 }
 
 resource "aws_db_instance" "postgres" {
@@ -9,10 +13,10 @@ resource "aws_db_instance" "postgres" {
   engine                    = "postgres"
   engine_version            = "15"
   instance_class            = "db.t3.micro"
-  db_name                   = "togglemaster-db"
+  db_name                   = "togglemasterdb"
   username                  = "master"
   password                  = var.db_password
   db_subnet_group_name      = aws_db_subnet_group.db_subnets.name
   vpc_security_group_ids    = [ aws_security_group.db_secgp.id ]
-  skip_final_snapshot       = false
+  skip_final_snapshot       = true
 }

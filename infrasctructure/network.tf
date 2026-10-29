@@ -27,7 +27,8 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "public_1" {
     vpc_id                  = aws_vpc.main.id
     cidr_block              = "10.0.2.0/24"
-    availability_zone       = "${var.aws_region}-a"
+    availability_zone       = "${var.aws_region}a"
+    map_public_ip_on_launch = true
 } # fim subnet EC2
 
 
@@ -38,7 +39,7 @@ resource "aws_subnet" "private_1" {
     vpc_id                  = aws_vpc.main.id
     cidr_block              = "10.0.1.0/24"
     map_public_ip_on_launch = true
-    availability_zone       = "${var.aws_region}-b"
+    availability_zone       = "${var.aws_region}b"
 } # fim subnet RDS
 
 # - - - - - - - - - - - - - 
@@ -53,6 +54,13 @@ resource "aws_security_group" "api_secgp" {
         to_port = 80
         protocol = "tcp"
         cidr_blocks = [ "0.0.0.0/0" ]
+    }
+
+    ingress {
+        from_port   = 22
+        to_port     = 22
+        protocol    = "tcp"
+        cidr_blocks = ["0.0.0.0/0"] 
     }
 
     egress {
@@ -74,7 +82,33 @@ resource "aws_security_group" "db_secgp" {
         from_port = 5432
         to_port = 5432
         protocol = "tcp"
-        cidr_blocks = [ aws_security_group.api_secgp ]
+        security_groups = [ aws_security_group.api_secgp.id ]
     }
 }
 
+resource "aws_subnet" "private_2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.3.0/24"
+  availability_zone = "${var.aws_region}c"
+}
+
+# portão de saída para a internet
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+}
+
+# tabela de rotas pública apontando o tráfego externo para o IGW
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+}
+
+# associa a router table à subnet pública
+resource "aws_route_table_association" "public_assoc" {
+  subnet_id      = aws_subnet.public_1.id
+  route_table_id = aws_route_table.public_rt.id
+}

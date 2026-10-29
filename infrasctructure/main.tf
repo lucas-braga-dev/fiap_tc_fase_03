@@ -1,5 +1,13 @@
 terraform {
     required_version = ">= 1.5.0"
+
+    backend "s3" {
+      bucket        = "tc-fase-03-tfstate-bucket"
+      key           = "fase3/terraform.tfstate"
+      region        = "us-east-2"
+      use_lockfile  = true
+    }
+
     required_providers {
         aws = {
             source  = "hashicorp/aws"
@@ -10,20 +18,4 @@ terraform {
 
 provider "aws" {
     region = var.aws_region
-}
-
-module "ec2_module" {
-  source = "./modules/ec2"
-}
-
-module "rds_module" {
-  source = "./modules/rds"
-}
-
-module "s3_module" {
-  source = "./modules/s3"
-}
-
-module "vpc_module" {
-  source = "./modules/vpc"
 }
