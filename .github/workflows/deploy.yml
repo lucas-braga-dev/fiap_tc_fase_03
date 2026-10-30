@@ -85,7 +85,7 @@ jobs:
           script: |
             set -eu
             : "${DOCKERHUB_NAMESPACE:?Configure DOCKERHUB_NAMESPACE}"
-            cd "$HOME/togglemaster"
+            cd "$HOME/fiap-tc-fase-03"
             test -s .env
             umask 077
             printf '%s' "$COMPOSE_B64" | base64 -d > compose.ec2.yaml

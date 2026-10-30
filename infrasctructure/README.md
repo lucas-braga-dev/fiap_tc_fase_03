@@ -1,13 +1,13 @@
-﻿# Infraestrutura AWS
+# Infraestrutura AWS
 
-Este diretório provisiona VPC, subnets, regras de acesso, uma EC2, um RDS PostgreSQL e um bucket S3 para a aplicação. O estado do Terraform fica em um bucket S3 separado, que precisa existir antes da inicialização.
+Este diretório provisiona VPC, subnets, regras de acesso, EC2, RDS PostgreSQL, bucket S3, fila SQS com DLQ e tabela DynamoDB. Uma IAM Role permite à EC2 acessar a fila e a tabela. O estado do Terraform fica em um bucket S3 separado, que precisa existir antes da inicialização.
 
 ## 1. Preparar os pré-requisitos
 
 Antes de executar o Terraform, tenha:
 
 - Terraform instalado, compatível com o backend S3 e a opção `use_lockfile` de `main.tf`.
-- AWS CLI configurada com credenciais válidas e permissões para provisionar os recursos e acessar o estado remoto. Se as credenciais forem temporárias, inclua o token de sessão.
+- AWS CLI configurada com credenciais válidas e permissões para provisionar os recursos e acessar o estado remoto, incluindo SQS, DynamoDB, criação de roles e instance profiles e `iam:PassRole`. Se as credenciais forem temporárias, inclua o token de sessão.
 - Um **EC2 Key Pair** criado ou importado na região de implantação. O nome esperado em `compute.tf` é `fiap-tc-fase-03-devops`. Guarde a chave privada correspondente para acessar a EC2; ela não é criada pelo Terraform.
 - O bucket de estado `tc-fase-03-tfstate-bucket`, na região `us-east-2`, já disponível, com permissões para o estado e seu arquivo de lock. Caso use outro bucket, ajuste o backend em `main.tf`. O bucket de `storage.tf` é para a aplicação e não substitui esse pré-requisito.
 - Uma senha definida para a variável obrigatória `db_password`, fornecida na execução ou por `TF_VAR_db_password`, sem versioná-la.
@@ -102,8 +102,46 @@ Antes do deploy, é preciso:
 
 - Definir as `DATABASE_URL` de Auth, Flags e Targeting com o host do RDS, o banco correspondente, credenciais válidas e configuração SSL.
 - Disponibilizar usuários e permissões de acesso às tabelas. O script não cria os usuários `auth_user` e `config_user` usados no ambiente Docker local; as tabelas são criadas pelo usuário que executa o script.
-- Configurar as demais dependências dos serviços: Redis, SQS, DynamoDB, chaves da aplicação e credenciais ou permissões AWS. Os arquivos Terraform deste diretório não provisionam Redis, SQS ou DynamoDB, nem associam uma IAM Role à EC2.
+- Configurar o `.env` na raiz do clone na EC2 (`~/fiap-tc-fase-03/.env`), usando `deploy/.env.ec2.example`. O Terraform provisiona SQS, DynamoDB e a IAM Role conforme a etapa 6; o Compose de deploy inicia o Redis. Defina também as chaves da aplicação.
 - Conferir os caminhos e as configurações do mecanismo de deploy escolhido. O `docker-compose.yaml` da raiz ainda referencia caminhos antigos dos serviços e bancos locais; precisa ser adaptado para o RDS antes de ser usado nesse cenário.
 - Definir como as APIs serão expostas. O Security Group atual libera HTTP na porta 80, mas não configura proxy nem libera diretamente as portas 8001 a 8005 dos serviços.
 
 **Para avançar:** dependências disponíveis, variáveis configuradas e acesso HTTP definido. Provisionar a infraestrutura e inicializar o banco não inicia os serviços da aplicação.
+
+## 6. Configurar o fluxo de eventos
+
+Depois de atualizar os arquivos Terraform, na pasta `infrasctructure`, execute
+`terraform plan` e confira as alterações antes de `terraform apply`. Não é necessário
+recriar manualmente a EC2 ou os recursos existentes. Se uma fila ou tabela com os
+mesmos nomes já existir fora do estado, importe o recurso antes de aplicar.
+
+O provisionamento inclui:
+
+- Fila Standard `togglemaster-events-<ambiente>`, criptografada com chave gerenciada pelo SQS, retenção de quatro dias, long polling de 20 segundos e visibilidade de 120 segundos.
+- DLQ `togglemaster-events-dlq-<ambiente>`, com retenção de 14 dias, para mensagens que falham após cinco recebimentos. Inspeção e reprocessamento são operações separadas.
+- Tabela `ToggleMasterAnalytics-<ambiente>`, com cobrança por demanda e chave de partição textual `event_id`, conforme o Analytics.
+- IAM Role na EC2 com `SendMessage`, `ReceiveMessage` e `DeleteMessage` somente na fila principal e `PutItem` somente na tabela. Como os serviços compartilham a EC2, compartilham também essa role.
+- IMDSv2 obrigatório com hop limit 2 para permitir que os contêineres obtenham as credenciais da role.
+
+Preencha o `.env` da EC2 com os outputs abaixo:
+
+| Variável no `.env` | Comando na pasta `infrasctructure` |
+| --- | --- |
+| `AWS_REGION` | `terraform output -raw aws_region` |
+| `AWS_SQS_URL` | `terraform output -raw sqs_queue_url` |
+| `AWS_DYNAMODB_TABLE` | `terraform output -raw dynamodb_table_name` |
+
+Deixe `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN` vazios
+para usar a IAM Role. Remova credenciais antigas, pois valores preenchidos têm
+precedência sobre a role. Não configure `AWS_ENDPOINT_URL` do LocalStack no deploy.
+Recrie os contêineres após alterar o `.env` para aplicar os novos valores.
+
+**Para avançar:** aplicação do Terraform concluída, outputs copiados para o `.env`
+e role associada à EC2. Após o deploy, faça uma avaliação autenticada e confira
+se o evento aparece no DynamoDB; o `/health` do Analytics não verifica esse fluxo.
+Filas Standard podem entregar mensagens repetidas; o consumidor atual gera um novo
+`event_id` por processamento e ainda não elimina duplicatas.
+
+Referências: [SQS no Terraform](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue),
+[DynamoDB no Terraform](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dynamodb_table)
+e [opções de metadados da EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-options.html).

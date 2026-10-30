@@ -1,4 +1,4 @@
-﻿# CI/CD para EC2
+# CI/CD para EC2
 
 O workflow `.github/workflows/deploy.yml` usa Docker Hub e a EC2 existente. Não executa Terraform nem inicializa o RDS durante deploys.
 
@@ -7,7 +7,7 @@ O workflow `.github/workflows/deploy.yml` usa Docker Hub e a EC2 existente. Não
 1. Pull request para `main`: verifica sintaxe Python, executa testes Go e constrói as cinco imagens, sem publicar ou acessar a EC2.
 2. Push em `main` (ou execução manual nessa branch): repete o CI e publica `NAMESPACE/togglemaster-SERVICO:SHA_DO_COMMIT` no Docker Hub.
 3. Após todos os builds passarem, o job de deploy envia o Compose pelo SSH, executa `pull` e `up -d`, aguarda a inicialização e consulta `/health` dos cinco serviços.
-4. O commit implantado com sucesso fica em `~/togglemaster/deployed-image-tag`. Execuções da mesma branch são serializadas.
+4. O commit implantado com sucesso fica em `~/fiap-tc-fase-03/deployed-image-tag`. Execuções da mesma branch são serializadas.
 
 O Compose da EC2 usa RDS e serviços AWS reais, com Redis local persistido. Ele não usa o Compose local nem inicia PostgreSQL ou LocalStack. As imagens são `linux/amd64`, compatíveis com a EC2 `t3.micro` atual.
 
@@ -38,10 +38,10 @@ Crie o environment `production`. Regras de aprovação nesse environment, se con
 - Conclua o provisionamento e a inicialização do RDS descritos em `../infrasctructure/README.md`.
 - Tenha Docker, Compose v2 com suporte a `up --wait`, `curl` e `base64` disponíveis. O usuário SSH precisa executar Docker sem interação com `sudo`.
 - Permita o acesso SSH do runner do GitHub à instância e confirme o fingerprint do servidor. O workflow não altera Security Groups.
-- Crie `~/togglemaster` e coloque uma cópia preenchida de `.env.ec2.example` em `~/togglemaster/.env`, acessível apenas ao usuário de deploy (`chmod 600`).
+- Use a raiz do clone `~/fiap-tc-fase-03` e coloque uma cópia preenchida de `.env.ec2.example` em `~/fiap-tc-fase-03/.env`, acessível apenas ao usuário de deploy (`chmod 600`).
 - Crie os cinco repositórios `togglemaster-auth-service`, `togglemaster-flag-service`, `togglemaster-targeting-service`, `togglemaster-evaluation-service` e `togglemaster-analytics-service` no namespace escolhido.
 - Para imagens privadas, autentique o Docker da EC2 uma vez com um token separado de leitura (`docker login --username USUARIO --password-stdin`). O login do CI não autentica a EC2.
-- Disponibilize SQS e DynamoDB, suas configurações e permissões. Prefira uma IAM Role associada à EC2; o Terraform atual ainda não a cria. Credenciais temporárias no `.env` precisam ser renovadas quando expirarem.
+- Aplique o Terraform para provisionar SQS, DynamoDB e a IAM Role da EC2. Copie os outputs `aws_region`, `sqs_queue_url` e `dynamodb_table_name` para o `.env`. Deixe as três variáveis de credenciais AWS vazias para usar a role.
 - Use usuários de banco com acesso às tabelas. O exemplo usa TLS com `sslmode=require`; para validar também identidade e cadeia de confiança, configure o certificado dentro dos contêineres e `sslmode=verify-full`.
 
 O `SERVICE_API_KEY` deve ser uma chave válida emitida pelo Auth, não a `MASTER_KEY`. No primeiro deploy, pode ser necessário iniciar o Auth, emitir a chave e atualizar o `.env` antes de consumir as APIs de avaliação.
