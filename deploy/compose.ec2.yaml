@@ -1,0 +1,86 @@
+﻿name: togglemaster-ec2
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  auth-service:
+    image: ${DOCKERHUB_NAMESPACE:?required}/togglemaster-auth-service:${IMAGE_TAG:?required}
+    restart: unless-stopped
+    environment:
+      PORT: '8001'
+      DATABASE_URL: ${AUTH_DATABASE_URL:?required}
+      MASTER_KEY: ${MASTER_KEY:?required}
+    ports: ['127.0.0.1:8001:8001']
+
+  flag-service:
+    image: ${DOCKERHUB_NAMESPACE:?required}/togglemaster-flag-service:${IMAGE_TAG:?required}
+    restart: unless-stopped
+    environment:
+      PORT: '8002'
+      DATABASE_URL: ${FLAGS_DATABASE_URL:?required}
+      AUTH_SERVICE_URL: http://auth-service:8001
+    ports: ['127.0.0.1:8002:8002']
+    depends_on:
+      auth-service:
+        condition: service_started
+
+  targeting-service:
+    image: ${DOCKERHUB_NAMESPACE:?required}/togglemaster-targeting-service:${IMAGE_TAG:?required}
+    restart: unless-stopped
+    environment:
+      PORT: '8003'
+      DATABASE_URL: ${TARGETING_DATABASE_URL:?required}
+      AUTH_SERVICE_URL: http://auth-service:8001
+    ports: ['127.0.0.1:8003:8003']
+    depends_on:
+      auth-service:
+        condition: service_started
+
+  evaluation-service:
+    image: ${DOCKERHUB_NAMESPACE:?required}/togglemaster-evaluation-service:${IMAGE_TAG:?required}
+    restart: unless-stopped
+    environment:
+      PORT: '8004'
+      REDIS_URL: redis://redis:6379
+      FLAG_SERVICE_URL: http://flag-service:8002
+      TARGETING_SERVICE_URL: http://targeting-service:8003
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?required}
+      AWS_REGION: ${AWS_REGION:?required}
+      AWS_SQS_URL: ${AWS_SQS_URL:?required}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    ports: ['127.0.0.1:8004:8004']
+    depends_on:
+      redis:
+        condition: service_healthy
+      flag-service:
+        condition: service_started
+      targeting-service:
+        condition: service_started
+
+  analytics-service:
+    image: ${DOCKERHUB_NAMESPACE:?required}/togglemaster-analytics-service:${IMAGE_TAG:?required}
+    restart: unless-stopped
+    environment:
+      PORT: '8005'
+      AWS_REGION: ${AWS_REGION:?required}
+      AWS_SQS_URL: ${AWS_SQS_URL:?required}
+      AWS_DYNAMODB_TABLE: ${AWS_DYNAMODB_TABLE:?required}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    ports: ['127.0.0.1:8005:8005']
+
+volumes:
+  redis-data:
