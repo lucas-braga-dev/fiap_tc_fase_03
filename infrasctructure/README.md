@@ -60,11 +60,11 @@ Use `ubuntu` para uma AMI Ubuntu ou `ec2-user` para Amazon Linux, conforme a ima
 
 Na EC2, é preciso:
 
-- Atualizar os pacotes usando o gerenciador da distribuição.
-- Instalar Docker, Docker Compose e o cliente PostgreSQL (`psql`). O servidor PostgreSQL ficará no RDS.
-- Iniciar o Docker e habilitá-lo na inicialização.
-- Se for executar Docker sem `sudo`, adicionar o usuário ao grupo `docker` e abrir uma nova sessão SSH.
-- Disponibilizar uma cópia completa deste repositório, incluindo `infrasctructure` e `apps-togglemaster`.
+- Atualizar os pacotes usando o gerenciador da distribuição (`sudo yum update -y`).
+- Instalar Git, Docker, Docker Compose e o cliente PostgreSQL (`sudo yum install git docker postgresql17-server -y`). O servidor PostgreSQL ficará no RDS.
+- Iniciar o Docker e habilitá-lo na inicialização (`sudo systemctl start docker` e `sudo systemctl enable docker`).
+- Se for executar Docker sem `sudo`, adicionar o usuário ao grupo `docker` (`sudo usermod -aG docker $USER`) e abrir uma nova sessão SSH.
+- Disponibilizar uma cópia completa deste repositório, incluindo `infrasctructure` e `apps-togglemaster` (publicar no GitHub ou outro "servidor de arquivos").
 
 **Para avançar:** conexão SSH funcionando, comandos `docker`, `docker compose` e `psql` disponíveis e repositório presente na EC2.
 
@@ -72,14 +72,14 @@ Na EC2, é preciso:
 
 Execute esta etapa na EC2: a regra de rede do RDS permite conexões na porta 5432 a partir do Security Group da instância.
 
-Na raiz do repositório, baixe o certificado de confiança do RDS e informe o host retornado pelo Terraform. O output `rds_endpoint` inclui a porta; em `RDSHOST`, use somente o nome do host, sem `:5432`.
+Na raiz do repositório, com os comandos abaixo, baixe o certificado de confiança do RDS e informe o host retornado pelo Terraform. O output `rds_endpoint` inclui a porta; em `RDSHOST`, use somente o nome do host, sem `:5432`.
 
 ```bash
 curl -o global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 export RDSHOST="<host-do-rds>"
 
 psql "host=$RDSHOST port=5432 dbname=togglemasterdb user=master sslmode=verify-full sslrootcert=./global-bundle.pem" \
-  -X -f infrasctructure/init.sql
+  -X -f fiap_tc_fase_03/infrasctructure/init.sql
 ```
 
 Informe a senha do RDS quando solicitada. O banco inicial `togglemasterdb` é criado pelo Terraform; o script cria os bancos usados pelos serviços:
@@ -94,7 +94,7 @@ O script carrega os arquivos SQL dos serviços por caminhos relativos ao própri
 
 A execução pode ser repetida: bancos e tabelas existentes são preservados, e funções e triggers são recriados. O script não migra estruturas antigas. Não use `--single-transaction`; se ocorrer um erro, a execução para e as etapas anteriores podem já ter sido aplicadas.
 
-**Para avançar:** script concluído sem erros e as três tabelas disponíveis nos respectivos bancos. Para conferir, conecte-se a cada banco pelo `psql` e execute `\dt public.*`.
+**Para avançar:** script concluído sem erros e as três tabelas disponíveis nos respectivos bancos. Para conferir, conecte-se a cada banco pelo `psql` (com `psql -h <SEU_ENDPOINT_DO_RDS> -U <SEU_USUARIO_DO_BANCO> -d diariodb`) e execute `\dt public.*`.
 
 ## 5. Preparar a configuração da aplicação
 
