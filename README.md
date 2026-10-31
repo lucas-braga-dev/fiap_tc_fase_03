@@ -40,7 +40,7 @@ Antes de continuar, confirme:
 
 - [ ] Terraform aplicado e outputs anotados.
 - [ ] SSH e Docker funcionando na EC2.
-- [ ] Clone disponível em `~/fiap-tc-fase-03` na EC2.
+- [ ] Clone disponível em `~/<nome-do-repositorio>` na EC2, ou caminho definido pela variable `EC2_DEPLOY_DIR` no GitHub.
 - [ ] `00-init.sql` e `01-users.sql` executados no RDS.
 - [ ] Senhas de `auth_user`, `flags_user` e `targeting_user` disponíveis.
 

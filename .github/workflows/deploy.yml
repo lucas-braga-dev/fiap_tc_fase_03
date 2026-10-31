@@ -101,6 +101,8 @@ jobs:
           NGINX_B64: ${{ env.NGINX_B64 }}
           IMAGE_TAG: ${{ github.sha }}
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          EC2_DEPLOY_DIR: ${{ vars.EC2_DEPLOY_DIR }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
@@ -108,26 +110,54 @@ jobs:
           passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
           fingerprint: ${{ secrets.EC2_HOST_FINGERPRINT }}
           command_timeout: 12m
-          envs: COMPOSE_B64,NGINX_B64,IMAGE_TAG,DOCKERHUB_NAMESPACE
+          envs: COMPOSE_B64,NGINX_B64,IMAGE_TAG,DOCKERHUB_NAMESPACE,REPOSITORY_NAME,EC2_DEPLOY_DIR
           script: |
-            set -eu
+            set -Eeuo pipefail
+            deploy_stage="validar configuracao"
+            trap 'status=$?; printf "Falha no deploy: etapa=%s linha=%s codigo=%s\n" "$deploy_stage" "$LINENO" "$status" >&2; exit "$status"' ERR
+            deploy_step() {
+              deploy_stage="$1"
+              printf '\n==> %s\n' "$deploy_stage"
+            }
+            deploy_step "validar configuracao e pasta na EC2"
             : "${DOCKERHUB_NAMESPACE:?Configure DOCKERHUB_NAMESPACE}"
-            cd "$HOME/fiap-tc-fase-03"
-            test -s .env
+            : "${REPOSITORY_NAME:?Nome do repositorio indisponivel}"
+            deploy_dir="${EC2_DEPLOY_DIR:-$HOME/$REPOSITORY_NAME}"
+            case "$deploy_dir" in
+              /*) ;;
+              *) deploy_dir="$HOME/$deploy_dir" ;;
+            esac
+            if [ ! -d "$deploy_dir" ]; then
+              echo "Pasta de deploy inexistente: $deploy_dir. Confira o clone ou configure a variable EC2_DEPLOY_DIR no GitHub." >&2
+              exit 1
+            fi
+            cd "$deploy_dir"
+            if [ ! -s .env ]; then
+              echo "Crie e preencha $deploy_dir/.env antes do deploy." >&2
+              exit 1
+            fi
+            deploy_step "gravar manifests"
             umask 077
             printf '%s' "$COMPOSE_B64" | base64 -d > compose.ec2.yaml
             printf '%s' "$NGINX_B64" | base64 -d > nginx.conf
             export IMAGE_TAG DOCKERHUB_NAMESPACE
+            deploy_step "validar Compose e variaveis do .env"
             docker compose --env-file .env -f compose.ec2.yaml config --quiet
+            deploy_step "baixar imagens"
             docker compose --env-file .env -f compose.ec2.yaml pull
+            deploy_step "iniciar containers"
             docker compose --env-file .env -f compose.ec2.yaml up -d --remove-orphans --wait --wait-timeout 180
+            deploy_step "verificar health checks locais"
             for port in 8001 8002 8003 8004 8005; do
               curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-connrefused "http://127.0.0.1:$port/health" > /dev/null
             done
+            deploy_step "validar e recarregar Nginx"
             docker compose --env-file .env -f compose.ec2.yaml exec -T proxy nginx -t
             docker compose --env-file .env -f compose.ec2.yaml exec -T proxy nginx -s reload
+            deploy_step "verificar health checks pelo proxy"
             for service in auth flags targeting evaluation analytics; do
               curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-connrefused "http://127.0.0.1/$service/health" > /dev/null
             done
+            deploy_step "registrar versao implantada"
             printf '%s\n' "$IMAGE_TAG" > deployed-image-tag
             docker compose --env-file .env -f compose.ec2.yaml ps

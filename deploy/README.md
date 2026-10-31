@@ -1,6 +1,6 @@
 # Deploy na EC2
 
-Tenha disponíveis: EC2 com Docker/Compose, clone em `~/fiap-tc-fase-03`, bancos e usuários criados, senhas e outputs do Terraform.
+Tenha disponíveis: EC2 com Docker/Compose, clone em `~/<nome-do-repositorio>`, bancos e usuários criados, senhas e outputs do Terraform.
 
 ## 1. Configurar Docker Hub e GitHub — navegador
 
@@ -19,6 +19,7 @@ No GitHub, em **Settings → Secrets and variables → Actions**, configure:
 | Tipo | Nome | Valor |
 | --- | --- | --- |
 | Variable | `DOCKERHUB_NAMESPACE` | Usuário ou organização Docker Hub |
+| Variable (opcional) | `EC2_DEPLOY_DIR` | Pasta do clone na EC2; vazia usa `$HOME/<nome-do-repositorio>` |
 | Secret | `DOCKERHUB_USERNAME` | Usuário Docker Hub |
 | Secret | `DOCKERHUB_TOKEN` | Token com permissão de publicação |
 | Secret | `EC2_HOST` | Output `ec2_public_ip` |
@@ -30,12 +31,16 @@ No GitHub, em **Settings → Secrets and variables → Actions**, configure:
 Obtenha o fingerprint dentro de uma sessão SSH confiável na EC2:
 
 ```bash
-sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key.pub -E sha256
 ```
 
 Copie somente `SHA256:...` para o secret. Permita SSH do runner do GitHub à EC2.
 
+Para o cliente do pipeline atual, use o fingerprint ECDSA quando a EC2 oferecer ECDSA e ED25519. Não substitua pela chave ED25519 nesse caso.
+
 No GitHub, crie **Settings → Environments → production**. Mantenha as credenciais Docker Hub nos secrets do repositório.
+
+Mantenha o nome exato do repositório na pasta, incluindo `_` ou `-`. Para outro caminho, configure `EC2_DEPLOY_DIR` com um caminho absoluto (`/opt/app`) ou relativo ao home do usuário SSH (`fiap_tc_fase_03`). Não use `~` nem `$HOME` no valor da variable. Não coloque essa variável no `.env`.
 
 Para imagens privadas, autentique o Docker **na EC2** com um token de leitura:
 
@@ -47,8 +52,10 @@ docker login --username <USUARIO_DOCKERHUB>
 
 Na raiz do clone, crie o arquivo somente se ainda não existir:
 
+Substitua `<NOME_DO_REPOSITORIO>` pelo nome no GitHub. Se definiu `EC2_DEPLOY_DIR`, entre nessa pasta nos comandos abaixo.
+
 ```bash
-cd ~/fiap-tc-fase-03
+cd "$HOME/<NOME_DO_REPOSITORIO>"
 test -f .env || cp deploy/.env.ec2.example .env
 chmod 600 .env
 nano .env
@@ -154,7 +161,7 @@ curl --fail 'http://<IP_EC2>/evaluation/evaluate?user_id=teste&flag_name=teste-d
 **Aplicar alterações do `.env`:** na EC2, atualize `IMAGE_TAG` com `cat deployed-image-tag`, edite `.env` e execute:
 
 ```bash
-cd ~/fiap-tc-fase-03
+cd "$HOME/<NOME_DO_REPOSITORIO>"
 docker compose --env-file .env -f compose.ec2.yaml config --quiet
 docker compose --env-file .env -f compose.ec2.yaml up -d --wait
 ```
