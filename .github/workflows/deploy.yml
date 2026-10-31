@@ -67,11 +67,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare deployment manifest
-        run: echo "COMPOSE_B64=$(base64 -w0 deploy/compose.ec2.yaml)" >> "$GITHUB_ENV"
+        run: |
+          echo "COMPOSE_B64=$(base64 -w0 deploy/compose.ec2.yaml)" >> "$GITHUB_ENV"
+          echo "NGINX_B64=$(base64 -w0 deploy/nginx.conf)" >> "$GITHUB_ENV"
       - name: Pull and restart Compose on EC2
         uses: appleboy/ssh-action@v1
         env:
           COMPOSE_B64: ${{ env.COMPOSE_B64 }}
+          NGINX_B64: ${{ env.NGINX_B64 }}
           IMAGE_TAG: ${{ github.sha }}
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
         with:
@@ -81,7 +84,7 @@ jobs:
           passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
           fingerprint: ${{ secrets.EC2_HOST_FINGERPRINT }}
           command_timeout: 12m
-          envs: COMPOSE_B64,IMAGE_TAG,DOCKERHUB_NAMESPACE
+          envs: COMPOSE_B64,NGINX_B64,IMAGE_TAG,DOCKERHUB_NAMESPACE
           script: |
             set -eu
             : "${DOCKERHUB_NAMESPACE:?Configure DOCKERHUB_NAMESPACE}"
@@ -89,12 +92,18 @@ jobs:
             test -s .env
             umask 077
             printf '%s' "$COMPOSE_B64" | base64 -d > compose.ec2.yaml
+            printf '%s' "$NGINX_B64" | base64 -d > nginx.conf
             export IMAGE_TAG DOCKERHUB_NAMESPACE
             docker compose --env-file .env -f compose.ec2.yaml config --quiet
             docker compose --env-file .env -f compose.ec2.yaml pull
             docker compose --env-file .env -f compose.ec2.yaml up -d --remove-orphans --wait --wait-timeout 180
             for port in 8001 8002 8003 8004 8005; do
               curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-connrefused "http://127.0.0.1:$port/health" > /dev/null
+            done
+            docker compose --env-file .env -f compose.ec2.yaml exec -T proxy nginx -t
+            docker compose --env-file .env -f compose.ec2.yaml exec -T proxy nginx -s reload
+            for service in auth flags targeting evaluation analytics; do
+              curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-connrefused "http://127.0.0.1/$service/health" > /dev/null
             done
             printf '%s\n' "$IMAGE_TAG" > deployed-image-tag
             docker compose --env-file .env -f compose.ec2.yaml ps

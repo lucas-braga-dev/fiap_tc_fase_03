@@ -1,6 +1,19 @@
 ﻿name: togglemaster-ec2
 
 services:
+  proxy:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports: ['80:80']
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - auth-service
+      - flag-service
+      - targeting-service
+      - evaluation-service
+      - analytics-service
+
   redis:
     image: redis:7.2-alpine
     restart: unless-stopped

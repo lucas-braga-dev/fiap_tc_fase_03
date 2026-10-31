@@ -46,7 +46,7 @@ Crie o environment `production`. Regras de aprovação nesse environment, se con
 
 O `SERVICE_API_KEY` deve ser uma chave válida emitida pelo Auth, não a `MASTER_KEY`. No primeiro deploy, pode ser necessário iniciar o Auth, emitir a chave e atualizar o `.env` antes de consumir as APIs de avaliação.
 
-As portas 8001 a 8005 ficam acessíveis somente em `127.0.0.1` na EC2. Para acesso externo, configure um proxy na instância e o roteamento HTTP/TLS. O pipeline não instala esse proxy.
+O Compose inclui Nginx na porta 80, que deve estar livre na EC2 e liberada no Security Group. As portas 8001-8005 ficam no loopback. Os prefixos `/auth/`, `/flags/`, `/targeting/`, `/evaluation/` e `/analytics/` encaminham aos respectivos servicos, removendo o prefixo. Exemplo: `/flags/flags` acessa `/flags` do Flags. O pipeline envia `nginx.conf`, valida e recarrega o proxy e verifica os cinco health checks por HTTP. HTTPS requer dominio, certificado, listener TLS e porta 443. Consulte a etapa 5 de `../infrasctructure/README.md` para deploy manual.
 
 ## Validação e recuperação
 

@@ -79,7 +79,7 @@ curl -o global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global
 export RDSHOST="<host-do-rds>"
 
 psql "host=$RDSHOST port=5432 dbname=togglemasterdb user=master sslmode=verify-full sslrootcert=./global-bundle.pem" \
-  -X -f fiap_tc_fase_03/infrasctructure/init.sql
+  -X -f infrasctructure/00-init.sql
 ```
 
 Informe a senha do RDS quando solicitada. O banco inicial `togglemasterdb` é criado pelo Terraform; o script cria os bancos usados pelos serviços:
@@ -90,23 +90,57 @@ Informe a senha do RDS quando solicitada. O banco inicial `togglemasterdb` é cr
 | Flags | `flags_db` | `flags` |
 | Targeting | `targeting_db` | `targeting_rules` |
 
-O script carrega os arquivos SQL dos serviços por caminhos relativos ao próprio arquivo. Mantenha a estrutura do repositório na EC2; copiar apenas `init.sql` não basta.
+O script carrega os arquivos SQL dos serviços por caminhos relativos ao próprio arquivo. Mantenha a estrutura do repositório na EC2; copiar apenas `00-init.sql` não basta.
 
 A execução pode ser repetida: bancos e tabelas existentes são preservados, e funções e triggers são recriados. O script não migra estruturas antigas. Não use `--single-transaction`; se ocorrer um erro, a execução para e as etapas anteriores podem já ter sido aplicadas.
 
-**Para avançar:** script concluído sem erros e as três tabelas disponíveis nos respectivos bancos. Para conferir, conecte-se a cada banco pelo `psql` (com `psql -h <SEU_ENDPOINT_DO_RDS> -U <SEU_USUARIO_DO_BANCO> -d diariodb`) e execute `\dt public.*`.
+**Para avançar:** script concluído sem erros e as três tabelas disponíveis nos respectivos bancos. Para conferir, conecte-se a cada banco pelo `psql` (com `psql -h <SEU_ENDPOINT_DO_RDS> -U <SEU_USUARIO_DO_BANCO> -d auth_db`) e execute `\dt public.*`.
 
-## 5. Preparar a configuração da aplicação
+## 5. Preparar a configuracao da aplicacao
 
-Antes do deploy, é preciso:
+Na EC2, na raiz do clone, execute o script de usuarios como `master`, depois de `00-init.sql`:
 
-- Definir as `DATABASE_URL` de Auth, Flags e Targeting com o host do RDS, o banco correspondente, credenciais válidas e configuração SSL.
-- Disponibilizar usuários e permissões de acesso às tabelas. O script não cria os usuários `auth_user` e `config_user` usados no ambiente Docker local; as tabelas são criadas pelo usuário que executa o script.
-- Configurar o `.env` na raiz do clone na EC2 (`~/fiap-tc-fase-03/.env`), usando `deploy/.env.ec2.example`. O Terraform provisiona SQS, DynamoDB e a IAM Role conforme a etapa 6; o Compose de deploy inicia o Redis. Defina também as chaves da aplicação.
-- Conferir os caminhos e as configurações do mecanismo de deploy escolhido. O `docker-compose.yaml` da raiz ainda referencia caminhos antigos dos serviços e bancos locais; precisa ser adaptado para o RDS antes de ser usado nesse cenário.
-- Definir como as APIs serão expostas. O Security Group atual libera HTTP na porta 80, mas não configura proxy nem libera diretamente as portas 8001 a 8005 dos serviços.
+```bash
+psql "host=$RDSHOST port=5432 dbname=togglemasterdb user=master sslmode=verify-full sslrootcert=./global-bundle.pem" -X -v ON_ERROR_STOP=1 -f infrasctructure/01-users.sql
+```
 
-**Para avançar:** dependências disponíveis, variáveis configuradas e acesso HTTP definido. Provisionar a infraestrutura e inicializar o banco não inicia os serviços da aplicação.
+O script solicita senhas para `auth_user`, `flags_user` e `targeting_user` e concede acesso a cada tabela e sua sequencia. Execute a criacao dos usuarios uma vez.
+
+Copie `deploy/.env.ec2.example` para `.env` na raiz do clone, se ainda nao existir, e execute `chmod 600 .env`. Preencha:
+
+- `AUTH_DATABASE_URL`, `FLAGS_DATABASE_URL` e `TARGETING_DATABASE_URL`: host RDS, usuarios acima, senhas e respectivos bancos. Preserve `sslmode=require`; caracteres especiais nas credenciais precisam de percent-encoding.
+- `MASTER_KEY` e `SERVICE_API_KEY`, conforme `deploy/README.md`.
+- `DOCKERHUB_NAMESPACE` e `IMAGE_TAG` para deploy manual. O pipeline fornece esses valores durante seu deploy.
+- Outputs AWS da etapa 6, antes de iniciar todos os servicos.
+
+O `docker-compose.yaml` da raiz e para desenvolvimento local, com PostgreSQL e LocalStack. Na EC2, use `deploy/compose.ec2.yaml`, com RDS e AWS reais, Redis e proxy Nginx.
+
+Depois de concluir a etapa 6, execute na raiz do clone:
+
+```bash
+docker compose --env-file .env -f deploy/compose.ec2.yaml config --quiet
+docker compose --env-file .env -f deploy/compose.ec2.yaml pull
+docker compose --env-file .env -f deploy/compose.ec2.yaml up -d --wait
+docker compose --env-file .env -f deploy/compose.ec2.yaml exec -T proxy nginx -t
+docker compose --env-file .env -f deploy/compose.ec2.yaml exec -T proxy nginx -s reload
+curl --fail http://localhost/auth/health
+```
+
+O proxy publica a porta 80 e remove o prefixo ao encaminhar a requisicao:
+
+| Prefixo externo | Destino interno |
+| --- | --- |
+| `/auth/` | `auth-service:8001/` |
+| `/flags/` | `flag-service:8002/` |
+| `/targeting/` | `targeting-service:8003/` |
+| `/evaluation/` | `evaluation-service:8004/` |
+| `/analytics/` | `analytics-service:8005/` |
+
+Exemplos: `http://<ec2_public_ip>/flags/flags`, `/targeting/rules/<nome>` e `/evaluation/evaluate`. Health checks: `/<prefixo>/health`.
+
+O Security Group ja libera a porta 80. Mantenha 8001-8005 restritas ao loopback da EC2; Redis nao publica porta e o RDS aceita 5432 apenas do Security Group da EC2. A porta 80 precisa estar livre na instancia. Para HTTPS, configure dominio, certificado e listener TLS no proxy (ou ALB), alem de liberar 443.
+
+**Para avancar:** usuarios e variaveis configurados. Apos concluir a etapa 6 e iniciar o deploy, confirme o acesso HTTP pelo IP publico. Provisionar a infraestrutura nao inicia a aplicacao.
 
 ## 6. Configurar o fluxo de eventos
 

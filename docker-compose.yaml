@@ -17,7 +17,7 @@ services:
 
     volumes:
       - postgres-auth-data:/var/lib/postgresql/data
-      - ./auth-service/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./apps-togglemaster/src/auth-service/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
 
     ports:
       - "5432:5432"
@@ -47,9 +47,9 @@ services:
 
     volumes:
       - postgres-config-data:/var/lib/postgresql/data
-      - ./infra/postgres-config/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-      - ./flag-service/db/init.sql:/opt/togglemaster/flags.sql:ro
-      - ./targeting-service/db/init.sql:/opt/togglemaster/targeting.sql:ro
+      - ./deploy/postgres-config-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./apps-togglemaster/src/flag-service/db/init.sql:/opt/togglemaster/flags.sql:ro
+      - ./apps-togglemaster/src/targeting-service/db/init.sql:/opt/togglemaster/targeting.sql:ro
 
     ports:
       - "5433:5432"
@@ -116,7 +116,7 @@ services:
 
   auth-service:
     build:
-      context: ./auth-service
+      context: ./apps-togglemaster/src/auth-service
       dockerfile: Dockerfile
 
     image: togglemaster/auth-service:local
@@ -141,7 +141,7 @@ services:
 
   flag-service:
     build:
-      context: ./flag-service
+      context: ./apps-togglemaster/src/flag-service
       dockerfile: Dockerfile
 
     image: togglemaster/flag-service:local
@@ -168,7 +168,7 @@ services:
 
   targeting-service:
     build:
-      context: ./targeting-service
+      context: ./apps-togglemaster/src/targeting-service
       dockerfile: Dockerfile
 
     image: togglemaster/targeting-service:local
@@ -195,7 +195,7 @@ services:
 
   evaluation-service:
     build:
-      context: ./evaluation-service
+      context: ./apps-togglemaster/src/evaluation-service
       dockerfile: Dockerfile
 
     image: togglemaster/evaluation-service:local
@@ -233,7 +233,7 @@ services:
 
   analytics-service:
     build:
-      context: ./analytics-service
+      context: ./apps-togglemaster/src/analytics-service
       dockerfile: Dockerfile
 
     image: togglemaster/analytics-service:local
