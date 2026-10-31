@@ -66,6 +66,30 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+      - name: Check SSH connectivity
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import socket
+          import sys
+          import time
+
+          host = os.environ.get("EC2_HOST", "").strip()
+          if not host or "://" in host or "/" in host or ":" in host:
+              sys.exit("Configure EC2_HOST com apenas o IPv4 publico ou DNS da EC2, sem protocolo ou porta.")
+
+          for attempt in range(3):
+              try:
+                  with socket.create_connection((host, 22), timeout=10):
+                      print("Porta SSH 22 acessivel.")
+                  break
+              except OSError:
+                  if attempt == 2:
+                      sys.exit("SSH 22 inacessivel. Confira EC2 running/status checks, EC2_HOST atual, Security Group, rota publica e Network ACL. Consulte deploy/README.md: Falha de conexao SSH.")
+                  time.sleep(2)
+          PY
       - name: Prepare deployment manifest
         run: |
           echo "COMPOSE_B64=$(base64 -w0 deploy/compose.ec2.yaml)" >> "$GITHUB_ENV"
