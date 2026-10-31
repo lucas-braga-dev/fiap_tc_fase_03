@@ -91,8 +91,8 @@ base64 --version
 Clone o repositório na EC2. Para repositório privado, configure acesso de leitura ao GitHub antes:
 
 ```bash
-git clone <URL_DO_REPOSITORIO> ~/fiap-tc-fase-03
-cd ~/fiap-tc-fase-03
+git clone <URL_DO_REPOSITORIO>
+cd <NOME_DO_REPOSITORIO>
 ```
 
 ## 4. Inicializar bancos e usuários — EC2
