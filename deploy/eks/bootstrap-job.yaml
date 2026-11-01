@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: togglemaster-db-bootstrap
+  namespace: togglemaster
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: schemas
+          image: postgres:17-alpine
+          envFrom:
+            - secretRef:
+                name: togglemaster-db-bootstrap
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              for service in auth flags targeting; do
+                case "$service" in
+                  auth) export ROLE_NAME=auth_user ROLE_PASSWORD="$AUTH_PASSWORD"; master_url="$AUTH_MASTER_URL" ;;
+                  flags) export ROLE_NAME=flags_user ROLE_PASSWORD="$FLAGS_PASSWORD"; master_url="$FLAGS_MASTER_URL" ;;
+                  targeting) export ROLE_NAME=targeting_user ROLE_PASSWORD="$TARGETING_PASSWORD"; master_url="$TARGETING_MASTER_URL" ;;
+                esac
+                psql "$master_url" -X -v ON_ERROR_STOP=1 -f "/schemas/$service.sql" -f /schemas/grants.sql
+              done
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: schemas
+              mountPath: /schemas
+              readOnly: true
+      volumes:
+        - name: schemas
+          configMap:
+            name: togglemaster-db-schemas

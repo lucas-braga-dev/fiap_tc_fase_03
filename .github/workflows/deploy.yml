@@ -1,163 +1,232 @@
-﻿name: Build and deploy EC2
-
+name: DevSecOps and GitOps
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: ec2-${{ github.ref }}
+  group: devsecops-${{ github.ref }}
   cancel-in-progress: false
-
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
 jobs:
-  build:
+  configuration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.17.0'
+      - name: Validate EKS Terraform without AWS access
+        working-directory: infrasctructure/eks
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+          terraform test
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.36.1'
+      - name: Render local and AWS Kubernetes manifests
+        run: |
+          kubectl kustomize gitops-manifests/k8s-manifests/base > /dev/null
+          kubectl kustomize gitops-manifests/aws > /dev/null
+          python3 -m unittest discover -s scripts/tests -v
+  test:
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         service: [auth-service, flag-service, targeting-service, evaluation-service, analytics-service]
     steps:
-
       - uses: actions/checkout@v4
-    
-      - name: Check Python syntax
-        if: matrix.service != 'auth-service' && matrix.service != 'evaluation-service'
-        run: python3 -m py_compile apps-togglemaster/src/${{ matrix.service }}/app.py
-      
       - uses: actions/setup-go@v5
         if: matrix.service == 'auth-service' || matrix.service == 'evaluation-service'
         with:
-          go-version-file: apps-togglemaster/src/${{ matrix.service }}/go.mod
+          go-version: '1.27.3'
           cache-dependency-path: apps-togglemaster/src/${{ matrix.service }}/go.sum
-      - name: Go tests
+      - uses: actions/setup-python@v5
+        if: matrix.service != 'auth-service' && matrix.service != 'evaluation-service'
+        with:
+          python-version: '3.11'
+      - name: Go build and unit tests
         if: matrix.service == 'auth-service' || matrix.service == 'evaluation-service'
         working-directory: apps-togglemaster/src/${{ matrix.service }}
-        run: go test ./...
-      
-      - uses: docker/setup-buildx-action@v3
-      
-      - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
+        run: |
+          go build ./...
+          go test -race ./...
+      - name: Python dependencies and tests
+        if: matrix.service != 'auth-service' && matrix.service != 'evaluation-service'
+        working-directory: apps-togglemaster/src/${{ matrix.service }}
+        run: |
+          python -m pip install -r requirements.txt
+          python -m compileall -q .
+          python -m unittest discover -s . -p 'test_*.py'
+      - name: Test GitOps tooling
+        if: matrix.service == 'auth-service'
+        run: python3 -m unittest discover -s scripts/tests -v
+  lint:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-service, flag-service, targeting-service, evaluation-service, analytics-service]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        if: matrix.service == 'auth-service' || matrix.service == 'evaluation-service'
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
-      - name: Build and publish
+          go-version: '1.27.3'
+          cache-dependency-path: apps-togglemaster/src/${{ matrix.service }}/go.sum
+      - uses: actions/setup-python@v5
+        if: matrix.service != 'auth-service' && matrix.service != 'evaluation-service'
+        with:
+          python-version: '3.11'
+      - name: Go static analysis
+        if: matrix.service == 'auth-service' || matrix.service == 'evaluation-service'
+        working-directory: apps-togglemaster/src/${{ matrix.service }}
+        run: go vet ./...
+      - name: Python lint
+        if: matrix.service != 'auth-service' && matrix.service != 'evaluation-service'
+        run: |
+          python -m pip install ruff==0.17.3
+          ruff check --select E9,F apps-togglemaster/src/${{ matrix.service }}
+  source-security:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-service, flag-service, targeting-service, evaluation-service, analytics-service]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        if: matrix.service == 'auth-service' || matrix.service == 'evaluation-service'
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: apps-togglemaster/src/${{ matrix.service }}/go.sum
+      - uses: actions/setup-python@v5
+        if: matrix.service != 'auth-service' && matrix.service != 'evaluation-service'
+        with:
+          python-version: '3.11'
+      - name: Go SAST
+        if: matrix.service == 'auth-service' || matrix.service == 'evaluation-service'
+        working-directory: apps-togglemaster/src/${{ matrix.service }}
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
+          gosec -severity high ./...
+      - name: Python SAST
+        if: matrix.service != 'auth-service' && matrix.service != 'evaluation-service'
+        run: |
+          python -m pip install bandit==1.9.4
+          bandit -r apps-togglemaster/src/${{ matrix.service }} --severity-level high
+      - name: SCA - block CRITICAL dependencies
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: apps-togglemaster/src/${{ matrix.service }}
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+  container-scan:
+    needs: [test, lint, source-security, configuration]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-service, flag-service, targeting-service, evaluation-service, analytics-service]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: apps-togglemaster/src/${{ matrix.service }}
+          load: true
+          push: false
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ vars.DOCKERHUB_NAMESPACE || 'togglemaster-ci' }}/togglemaster-${{ matrix.service }}:${{ github.sha }}
+          tags: togglemaster/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
-
-  deploy:
+      - name: Container scan - block CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: togglemaster/${{ matrix.service }}:${{ github.sha }}
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+      - name: Export scanned image
+        if: github.event_name != 'pull_request'
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: docker save "togglemaster/$SERVICE:$IMAGE_TAG" | gzip > image.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: image-${{ matrix.service }}
+          path: image.tar.gz
+          retention-days: 1
+  publish:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: build
+    needs: container-scan
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    environment: production
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-service, flag-service, targeting-service, evaluation-service, analytics-service]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.service }}
+      - name: AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Publish scanned image
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          gunzip -c image.tar.gz | docker load
+          docker tag "togglemaster/$SERVICE:$IMAGE_TAG" "$REGISTRY/togglemaster/$SERVICE:$IMAGE_TAG"
+          docker push "$REGISTRY/togglemaster/$SERVICE:$IMAGE_TAG"
+  gitops:
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Check SSH connectivity
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import socket
-          import sys
-          import time
-
-          host = os.environ.get("EC2_HOST", "").strip()
-          if not host or "://" in host or "/" in host or ":" in host:
-              sys.exit("Configure EC2_HOST com apenas o IPv4 publico ou DNS da EC2, sem protocolo ou porta.")
-
-          for attempt in range(3):
-              try:
-                  with socket.create_connection((host, 22), timeout=10):
-                      print("Porta SSH 22 acessivel.")
-                  break
-              except OSError:
-                  if attempt == 2:
-                      sys.exit("SSH 22 inacessivel. Confira EC2 running/status checks, EC2_HOST atual, Security Group, rota publica e Network ACL. Consulte deploy/README.md: Falha de conexao SSH.")
-                  time.sleep(2)
-          PY
-      - name: Prepare deployment manifest
-        run: |
-          echo "COMPOSE_B64=$(base64 -w0 deploy/compose.ec2.yaml)" >> "$GITHUB_ENV"
-          echo "NGINX_B64=$(base64 -w0 deploy/nginx.conf)" >> "$GITHUB_ENV"
-      - name: Pull and restart Compose on EC2
-        uses: appleboy/ssh-action@v1
-        env:
-          COMPOSE_B64: ${{ env.COMPOSE_B64 }}
-          NGINX_B64: ${{ env.NGINX_B64 }}
-          IMAGE_TAG: ${{ github.sha }}
-          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
-          REPOSITORY_NAME: ${{ github.event.repository.name }}
-          EC2_DEPLOY_DIR: ${{ vars.EC2_DEPLOY_DIR }}
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          passphrase: ${{ secrets.EC2_SSH_PASSPHRASE }}
-          fingerprint: ${{ secrets.EC2_HOST_FINGERPRINT }}
-          command_timeout: 12m
-          envs: COMPOSE_B64,NGINX_B64,IMAGE_TAG,DOCKERHUB_NAMESPACE,REPOSITORY_NAME,EC2_DEPLOY_DIR
-          script: |
-            set -Eeuo pipefail
-            deploy_stage="validar configuracao"
-            trap 'status=$?; printf "Falha no deploy: etapa=%s linha=%s codigo=%s\n" "$deploy_stage" "$LINENO" "$status" >&2; exit "$status"' ERR
-            deploy_step() {
-              deploy_stage="$1"
-              printf '\n==> %s\n' "$deploy_stage"
-            }
-            deploy_step "validar configuracao e pasta na EC2"
-            : "${DOCKERHUB_NAMESPACE:?Configure DOCKERHUB_NAMESPACE}"
-            : "${REPOSITORY_NAME:?Nome do repositorio indisponivel}"
-            deploy_dir="${EC2_DEPLOY_DIR:-$HOME/$REPOSITORY_NAME}"
-            case "$deploy_dir" in
-              /*) ;;
-              *) deploy_dir="$HOME/$deploy_dir" ;;
-            esac
-            if [ ! -d "$deploy_dir" ]; then
-              echo "Pasta de deploy inexistente: $deploy_dir. Confira o clone ou configure a variable EC2_DEPLOY_DIR no GitHub." >&2
-              exit 1
-            fi
-            cd "$deploy_dir"
-            if [ ! -s .env ]; then
-              echo "Crie e preencha $deploy_dir/.env antes do deploy." >&2
-              exit 1
-            fi
-            deploy_step "gravar manifests"
-            umask 077
-            printf '%s' "$COMPOSE_B64" | base64 -d > compose.ec2.yaml
-            printf '%s' "$NGINX_B64" | base64 -d > nginx.conf
-            export IMAGE_TAG DOCKERHUB_NAMESPACE
-            deploy_step "validar Compose e variaveis do .env"
-            docker compose --env-file .env -f compose.ec2.yaml config --quiet
-            deploy_step "baixar imagens"
-            docker compose --env-file .env -f compose.ec2.yaml pull
-            deploy_step "iniciar containers"
-            docker compose --env-file .env -f compose.ec2.yaml up -d --remove-orphans --wait --wait-timeout 180
-            deploy_step "verificar health checks locais"
-            for port in 8001 8002 8003 8004 8005; do
-              curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-connrefused "http://127.0.0.1:$port/health" > /dev/null
-            done
-            deploy_step "validar e recarregar Nginx"
-            docker compose --env-file .env -f compose.ec2.yaml exec -T proxy nginx -t
-            docker compose --env-file .env -f compose.ec2.yaml exec -T proxy nginx -s reload
-            deploy_step "verificar health checks pelo proxy"
-            for service in auth flags targeting evaluation analytics; do
-              curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-connrefused "http://127.0.0.1/$service/health" > /dev/null
-            done
-            deploy_step "registrar versao implantada"
-            printf '%s\n' "$IMAGE_TAG" > deployed-image-tag
-            docker compose --env-file .env -f compose.ec2.yaml ps
+          ref: main
+          fetch-depth: 0
+      - name: Update scanned image tags
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          : "${AWS_ACCOUNT_ID:?Configure the AWS_ACCOUNT_ID repository variable}"
+          git diff --exit-code "$IMAGE_TAG" HEAD -- apps-togglemaster/src
+          python3 scripts/update-gitops-images.py --registry "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com" --tag "$IMAGE_TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gitops-manifests/aws/kustomization.yaml
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update GitOps images to $IMAGE_TAG [skip ci]"
+            git push origin HEAD:main
+          fi

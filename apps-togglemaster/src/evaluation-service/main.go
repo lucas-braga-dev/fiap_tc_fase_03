@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -62,7 +61,7 @@ func main() {
 	}
 
 	// --- Inicializa Clientes ---
-	
+
 	// Cliente Redis
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
@@ -92,9 +91,7 @@ func main() {
 	}
 
 	// Cliente HTTP (com timeout)
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
-	}
+	httpClient := internalHTTPClient()
 
 	// Cria a instância da App
 	app := &App{

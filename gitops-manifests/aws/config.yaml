@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: togglemaster-config
+data:
+  AWS_REGION: "us-east-2"
+  AWS_SQS_URL: "https://sqs.us-east-2.amazonaws.com/336550466957/togglemaster-fase3-events"
+  AWS_DYNAMODB_TABLE: "ToggleMasterAnalytics-fase3"
+  REDIS_URL: "rediss://master.togglemaster-fase3.na3wcs.use2.cache.amazonaws.com:6379"
+  AUTH_SERVICE_URL: http://auth-service:8001
+  FLAG_SERVICE_URL: http://flag-service:8002
+  TARGETING_SERVICE_URL: http://targeting-service:8003

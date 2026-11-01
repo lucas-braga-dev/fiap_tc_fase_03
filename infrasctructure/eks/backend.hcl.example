@@ -1,0 +1,4 @@
+bucket       = "tc-fase-03-tfstate-bucket"
+key          = "fase3/eks/terraform.tfstate"
+region       = "us-east-2"
+use_lockfile = true

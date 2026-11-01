@@ -1,5 +1,7 @@
 # AWS, EC2 e RDS
 
+Este roteiro mantém o cenário EC2 anterior. Para a Fase 3 com EKS, use a pasta `infrasctructure/eks` e seu estado separado.
+
 ## 1. Preparar o Terraform — máquina local
 
 1. Instale Terraform com suporte a `use_lockfile`, AWS CLI e Git.

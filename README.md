@@ -1,77 +1,58 @@
-# ToggleMaster — configuração e deploy
+# ToggleMaster — Tech Challenge Fase 3
 
-Siga a ordem abaixo. Execute os comandos em Bash (Linux, macOS ou WSL); use SSH para os comandos indicados na EC2.
+Execute os comandos em Bash. Para o CMD/PowerShell, adapte a sintaxe ou use WSL.
 
 ```mermaid
 flowchart TD
-    A[Obter o projeto base] --> B[Conferir serviços e referências Docker]
-    B --> C[Publicar o repositório no GitHub]
-    C --> D[Preparar credenciais AWS, bucket de estado e Key Pair]
-    D --> E[Revisar e aplicar Terraform]
-    E --> F[Preparar EC2 e clonar o repositório]
-    F --> G[Criar bancos, tabelas e usuários no RDS]
-    G --> H[Configurar Docker Hub e GitHub Actions]
-    H --> I[Preencher o .env na EC2]
-    I --> J[Executar o primeiro deploy]
-    J --> K[Emitir SERVICE_API_KEY e atualizar Evaluation]
-    K --> L[Testar APIs e conferir eventos no DynamoDB]
-    L --> M[Usar a aplicação e publicar atualizações]
+    A[Clonar projeto] --> B[Configurar AWS e backend S3 separado]
+    B --> C[Revisar Terraform EKS e estimar custos]
+    C --> D[Aplicar Terraform: EKS, 3 RDS, Redis, SQS, DynamoDB e ECR]
+    D --> E[Gerar manifestos AWS e inicializar bancos]
+    E --> F[Configurar GitHub Actions e acesso ECR]
+    F --> G[PR: testes, lint, SAST e SCA]
+    G --> H[Build e scan das 5 imagens]
+    H --> I[Main: publicar imagens aprovadas no ECR]
+    I --> J[CI atualiza tags na pasta GitOps]
+    J --> K[ArgoCD sincroniza os 5 serviços no EKS]
+    K --> L[Emitir chave e testar APIs e eventos]
+    L --> M[Gravar demonstração e entregar relatório]
 ```
 
-## 1. Preparar o repositório
+## 1. Provisionar
 
-1. Mantenha os cinco serviços em `apps-togglemaster/src/`.
-2. Confira os caminhos nos arquivos abaixo ao mover ou substituir serviços.
-3. Publique este repositório no GitHub, com a branch `main`.
-4. Mantenha `.env`, chaves SSH, senhas e arquivos de estado fora do Git.
+Siga [infrasctructure/eks/README.md](infrasctructure/eks/README.md). Use o estado `fase3/eks/terraform.tfstate`.
 
-| Arquivo | Uso |
+Os serviços no EKS usam credenciais temporárias por **EKS Pod Identity**. O GitHub Actions publica no ECR com access key de um usuário IAM exclusivo e restrito, configurada nos GitHub Secrets. Esse fluxo dispensa a criação de providers IAM OIDC na conta.
+
+Não aplique o novo cenário no estado da EC2. Revise o custo de EKS, NAT Gateway, três RDS e ElastiCache antes do apply.
+
+## 2. Configurar e publicar
+
+Siga [deploy/README.md](deploy/README.md), na ordem:
+
+1. Gere os manifestos com os outputs Terraform.
+2. Inicialize bancos e Secrets.
+3. Configure AWS/GitHub e instale ArgoCD.
+4. Publique em `main` e acompanhe o CI e o ArgoCD.
+5. Emita `SERVICE_API_KEY` e teste o fluxo.
+
+## 3. Entregar
+
+Preencha [docs/ENTREGA-FASE-3.md](docs/ENTREGA-FASE-3.md). Grave vídeo de até 20 minutos com IaC, bloqueio de segurança e sincronização GitOps.
+
+## Retomar e encerrar
+
+Siga [docs/RETOMADA.md](docs/RETOMADA.md) para continuar amanhã e remover os ambientes.
+
+## Arquivos
+
+| Caminho | Uso |
 | --- | --- |
-| [docker-compose.yaml](docker-compose.yaml) | Ambiente local: build, PostgreSQL, Redis e LocalStack |
-| [deploy/compose.ec2.yaml](deploy/compose.ec2.yaml) | EC2: imagens Docker Hub, RDS e AWS reais |
-| [deploy/nginx.conf](deploy/nginx.conf) | Rotas HTTP na porta 80 |
-| [.github/workflows/deploy.yml](.github/workflows/deploy.yml) | Build, publicação de imagens e deploy |
-
-## 2. Provisionar AWS e preparar os bancos
-
-Execute as etapas 1–4 de [infrasctructure/README.md](infrasctructure/README.md).
-
-Antes de continuar, confirme:
-
-- [ ] Terraform aplicado e outputs anotados.
-- [ ] SSH e Docker funcionando na EC2.
-- [ ] Clone disponível em `~/<nome-do-repositorio>` na EC2, ou caminho definido pela variable `EC2_DEPLOY_DIR` no GitHub.
-- [ ] `00-init.sql` e `01-users.sql` executados no RDS.
-- [ ] Senhas de `auth_user`, `flags_user` e `targeting_user` disponíveis.
-
-## 3. Configurar e executar o deploy
-
-Execute as etapas 1–4 de [deploy/README.md](deploy/README.md):
-
-1. Configure Docker Hub e GitHub Actions.
-2. Preencha o `.env` na EC2 com [deploy/.env.ec2.example](deploy/.env.ec2.example).
-3. Execute o workflow na branch `main`.
-4. Emita a chave de serviço e atualize `SERVICE_API_KEY`.
-
-## 4. Testar e usar
-
-Execute os testes da etapa 5 de [deploy/README.md](deploy/README.md).
-
-Use `http://<IP_EC2>/<prefixo>/<rota>`:
-
-| Serviço | Exemplo |
-| --- | --- |
-| Auth | `/auth/validate` |
-| Flags | `/flags/flags` |
-| Targeting | `/targeting/rules/<flag>` |
-| Evaluation | `/evaluation/evaluate?user_id=teste&flag_name=<flag>` |
-| Analytics | `/analytics/health` |
-
-## Consultas frequentes
-
-| Tarefa | Onde seguir |
-| --- | --- |
-| Alterar infraestrutura | [Infraestrutura — manutenção](infrasctructure/README.md#manutenção) |
-| Publicar código, alterar `.env` ou consultar logs | [Deploy — rotina](deploy/README.md#rotina) |
-| Consultar APIs e execução individual | READMEs em `apps-togglemaster/src/<serviço>/` |
-| Usar o cenário Kubernetes | [Manifestos Kubernetes](gitops-manifests/k8s-manifests/README.md) |
+| [infrasctructure/eks](infrasctructure/eks/) | Cenário da Fase 3; conta pessoal |
+| [.github/workflows/deploy.yml](.github/workflows/deploy.yml) | Testes, lint, SAST/SCA, scan, ECR e atualização GitOps |
+| [gitops-manifests/aws](gitops-manifests/aws/) | Cinco serviços com RDS, ElastiCache e AWS reais |
+| [gitops-manifests/argocd/application.yaml](gitops-manifests/argocd/application.yaml) | Sync automático com prune e self-heal |
+| [docker-compose.yaml](docker-compose.yaml) | Desenvolvimento local |
+| [gitops-manifests/k8s-manifests](gitops-manifests/k8s-manifests/) | Kubernetes local com LocalStack |
+| [infrasctructure/README.md](infrasctructure/README.md) | Infraestrutura EC2 anterior |
+| [deploy/legacy/README.md](deploy/legacy/README.md) | Deploy manual alternativo na EC2 |

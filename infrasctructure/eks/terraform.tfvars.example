@@ -1,0 +1,5 @@
+aws_region        = "us-east-2"
+environment       = "fase3"
+admin_cidrs       = ["203.0.113.10/32"] # Substitua pelo seu IPv4 publico.
+node_instance_types       = ["m7i-flex.large"] # Confirme elegibilidade e oferta na sua regiao.
+rds_backup_retention_days = 1

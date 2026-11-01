@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: togglemaster
+resources:
+  - namespace.yaml
+  - config.yaml
+  - auth-service.yaml
+  - flag-service.yaml
+  - targeting-service.yaml
+  - evaluation-service.yaml
+  - analytics-service.yaml
+images:
+  - name: togglemaster/auth-service
+    newName: 336550466957.dkr.ecr.us-east-2.amazonaws.com/togglemaster/auth-service
+    newTag: bootstrap
+  - name: togglemaster/flag-service
+    newName: 336550466957.dkr.ecr.us-east-2.amazonaws.com/togglemaster/flag-service
+    newTag: bootstrap
+  - name: togglemaster/targeting-service
+    newName: 336550466957.dkr.ecr.us-east-2.amazonaws.com/togglemaster/targeting-service
+    newTag: bootstrap
+  - name: togglemaster/evaluation-service
+    newName: 336550466957.dkr.ecr.us-east-2.amazonaws.com/togglemaster/evaluation-service
+    newTag: bootstrap
+  - name: togglemaster/analytics-service
+    newName: 336550466957.dkr.ecr.us-east-2.amazonaws.com/togglemaster/analytics-service
+    newTag: bootstrap

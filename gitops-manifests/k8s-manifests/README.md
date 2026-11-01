@@ -7,7 +7,7 @@ reais.
 ## Estrutura
 
 ```text
-k8s/
+gitops-manifests/k8s-manifests/
 ├── base/
 │   ├── applications/       # Deployments e Services dos cinco microsserviços
 │   ├── configmaps/         # URLs internas e scripts SQL
@@ -29,8 +29,8 @@ DynamoDB locais.
 O `kubectl kustomize` é executado localmente e não precisa de contexto ativo:
 
 ```bat
-kubectl kustomize k8s\base > NUL
-kubectl kustomize k8s\autoscaling > NUL
+kubectl kustomize gitops-manifests\k8s-manifests\base > NUL
+kubectl kustomize gitops-manifests\k8s-manifests\autoscaling > NUL
 ```
 
 Esses comandos validam a composição dos arquivos. Eles não comprovam que os
@@ -75,7 +75,7 @@ tentará baixar essas imagens locais quando elas já estiverem no nó.
 Copie o modelo:
 
 ```bat
-copy k8s\secrets\togglemaster-secrets.example.yaml k8s\secrets\togglemaster-secrets.yaml
+copy gitops-manifests\k8s-manifests\secrets\togglemaster-secrets.example.yaml gitops-manifests\k8s-manifests\secrets\togglemaster-secrets.yaml
 ```
 
 Edite os valores de:
@@ -103,9 +103,9 @@ kubectl get nodes
 Crie o namespace e o Secret antes dos workloads:
 
 ```bat
-kubectl apply -f k8s\base\namespace.yaml
-kubectl apply -f k8s\secrets\togglemaster-secrets.yaml
-kubectl apply -k k8s\base
+kubectl apply -f gitops-manifests\k8s-manifests\base\namespace.yaml
+kubectl apply -f gitops-manifests\k8s-manifests\secrets\togglemaster-secrets.yaml
+kubectl apply -k gitops-manifests\k8s-manifests\base
 ```
 
 Acompanhe a inicialização:
@@ -168,10 +168,10 @@ curl -X POST http://localhost:8001/admin/keys ^
 ```
 
 Copie a chave retornada para `SERVICE_API_KEY` em
-`k8s\secrets\togglemaster-secrets.yaml` e aplique a mudança:
+`gitops-manifests\k8s-manifests\secrets\togglemaster-secrets.yaml` e aplique a mudança:
 
 ```bat
-kubectl apply -f k8s\secrets\togglemaster-secrets.yaml
+kubectl apply -f gitops-manifests\k8s-manifests\secrets\togglemaster-secrets.yaml
 kubectl rollout restart deployment/evaluation-service -n togglemaster
 kubectl rollout status deployment/evaluation-service -n togglemaster
 ```
@@ -236,7 +236,7 @@ Espere ambos ficarem prontos e aplique os recursos:
 ```bat
 kubectl rollout status deployment/metrics-server -n kube-system
 kubectl rollout status deployment/keda-operator -n keda
-kubectl apply -k k8s\autoscaling
+kubectl apply -k gitops-manifests\k8s-manifests\autoscaling
 ```
 
 Verifique:

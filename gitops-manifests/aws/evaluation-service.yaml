@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: evaluation-service
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evaluation-service
+spec:
+  selector:
+    app: evaluation-service
+  ports:
+    - name: http
+      port: 8004
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evaluation-service
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: evaluation-service
+  template:
+    metadata:
+      labels:
+        app: evaluation-service
+    spec:
+      serviceAccountName: evaluation-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: evaluation-service
+          image: togglemaster/evaluation-service:bootstrap
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8004
+          env:
+            - name: PORT
+              value: "8004"
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: togglemaster-config
+                  key: AWS_REGION
+            - name: AWS_SQS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: togglemaster-config
+                  key: AWS_SQS_URL
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: togglemaster-config
+                  key: REDIS_URL
+            - name: FLAG_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: togglemaster-config
+                  key: FLAG_SERVICE_URL
+            - name: TARGETING_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: togglemaster-config
+                  key: TARGETING_SERVICE_URL
+            - name: SERVICE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: togglemaster-secrets
+                  key: SERVICE_API_KEY
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

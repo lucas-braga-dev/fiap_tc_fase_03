@@ -1,195 +1,175 @@
-# Deploy na EC2
+# Deploy EKS com GitOps
 
-Tenha disponíveis: EC2 com Docker/Compose, clone em `~/<nome-do-repositorio>`, bancos e usuários criados, senhas e outputs do Terraform.
+Tenha o EKS provisionado, contexto kubectl correto, nós Ready e `tmp/eks-outputs.json` atualizado. Execute na raiz do projeto.
 
-## 1. Configurar Docker Hub e GitHub — navegador
+## 1. Configurar os manifestos
 
-No Docker Hub, crie os repositórios no mesmo namespace:
-
-```text
-togglemaster-auth-service
-togglemaster-flag-service
-togglemaster-targeting-service
-togglemaster-evaluation-service
-togglemaster-analytics-service
+```bash
+python scripts/configure-eks.py tmp/eks-outputs.json
+kubectl kustomize gitops-manifests/aws > tmp/aws-rendered.yaml
 ```
 
-No GitHub, em **Settings → Secrets and variables → Actions**, configure:
+Confira os arquivos alterados em `gitops-manifests/aws` e `gitops-manifests/argocd/application.yaml`. Não versione o arquivo de outputs.
+
+Evaluation e Analytics usam as associações EKS Pod Identity criadas pelo Terraform. O script configura endpoints, imagens e origem Git; a identidade dos Pods é configurada no EKS, sem annotations de role nos manifestos.
+
+Se já usava IRSA, remova de sua cópia local o bloco `components: / - identity` do Kustomization e os patches que adicionam `eks.amazonaws.com/role-arn`. Após sincronizar os novos manifestos, remova a annotation antiga das duas ServiceAccounts se ainda existir e reinicie os Pods para receber as variáveis do Pod Identity:
+
+```bash
+kubectl annotate serviceaccount evaluation-service analytics-service -n togglemaster eks.amazonaws.com/role-arn-
+kubectl rollout restart deployment/evaluation-service deployment/analytics-service -n togglemaster
+```
+
+Essa limpeza só é necessária para workloads já implantados com a configuração anterior. Não injete access keys AWS nos Secrets dos Pods.
+
+## 2. Inicializar bancos e Secrets
+
+Confira o contexto antes de executar:
+
+```bash
+kubectl config current-context
+kubectl apply -f gitops-manifests/aws/namespace.yaml
+python scripts/bootstrap-eks-databases.py tmp/eks-outputs.json
+```
+
+O script usa Secrets Manager, aplica schemas/grants dentro do cluster e remove o Secret master temporário após sucesso. Não execute novamente se o Secret de aplicação já existir.
+
+Se falhar:
+
+```bash
+kubectl logs -n togglemaster job/togglemaster-db-bootstrap
+kubectl get jobs,pods -n togglemaster
+```
+
+Corrija a causa e repita o script antes de iniciar o deploy. Não publique Secrets no Git.
+
+## 3. Configurar GitHub Actions
+
+Em **Settings → Secrets and variables → Actions**, defina:
 
 | Tipo | Nome | Valor |
 | --- | --- | --- |
-| Variable | `DOCKERHUB_NAMESPACE` | Usuário ou organização Docker Hub |
-| Variable (opcional) | `EC2_DEPLOY_DIR` | Pasta do clone na EC2; vazia usa `$HOME/<nome-do-repositorio>` |
-| Secret | `DOCKERHUB_USERNAME` | Usuário Docker Hub |
-| Secret | `DOCKERHUB_TOKEN` | Token com permissão de publicação |
-| Secret | `EC2_HOST` | Output `ec2_public_ip` |
-| Secret | `EC2_USER` | `ubuntu` ou `ec2-user` |
-| Secret | `EC2_SSH_KEY` | Conteúdo completo da chave privada `.pem` |
-| Secret | `EC2_SSH_PASSPHRASE` | Senha da chave, se houver |
-| Secret | `EC2_HOST_FINGERPRINT` | Fingerprint SHA256 do servidor SSH |
+| Variable | `AWS_REGION` | Output `aws_region` |
+| Variable | `AWS_ACCOUNT_ID` | Output `aws_account_id` |
+| Secret | `AWS_ACCESS_KEY_ID` | Access key do usuário exclusivo de publicação |
+| Secret | `AWS_SECRET_ACCESS_KEY` | Secret access key desse usuário |
 
-Obtenha o fingerprint dentro de uma sessão SSH confiável na EC2:
+Após o apply, execute `terraform -chdir=infrasctructure/eks output -raw github_ecr_user_name`. No console **IAM → Users → usuário retornado → Security credentials → Create access key**, crie uma chave para o GitHub Actions e copie os dois valores diretamente para os Secrets acima. O usuário tem apenas as permissões necessárias para autenticação ECR, leitura e envio de imagens aos cinco repositórios do projeto.
 
-```bash
-sudo ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key.pub -E sha256
+Não use as credenciais do usuário que provisiona a infraestrutura. O Terraform não cria access keys, não exibe segredos em outputs e não armazena essas chaves no estado. Não salve os valores em arquivos versionados, logs ou manifestos. O workflow usa as chaves diretamente, sem `role-to-assume`, `AWS_SESSION_TOKEN` ou permissão `id-token: write`. Remova a antiga variável `AWS_ECR_ROLE_ARN`, se existir.
+
+Na rotação, crie a segunda chave do mesmo usuário, atualize os dois Secrets, confirme uma publicação e depois desative/exclua a antiga. Antes de destruir a infraestrutura, exclua as access keys desse usuário no IAM; elas foram criadas fora do Terraform e impedem a exclusão do usuário enquanto existirem.
+
+Permita escrita de Contents pelo GitHub Actions. Se houver proteção da branch, autorize o mecanismo de automação a atualizar os manifestos.
+
+## 4. Instalar ArgoCD
+
+O ArgoCD será instalado **dentro do cluster EKS `togglemaster-fase3`, no namespace `argocd`**. Execute os comandos abaixo **no terminal da sua máquina local, na raiz deste repositório**. O Helm deve estar instalado nessa máquina; ele enviará os recursos ao cluster configurado no seu kubeconfig.
+
+No PowerShell, selecione o cluster usando os outputs do Terraform e confira os nós antes de instalar:
+
+```powershell
+$clusterName = terraform -chdir=infrasctructure/eks output -raw cluster_name
+$awsRegion = terraform -chdir=infrasctructure/eks output -raw aws_region
+aws eks update-kubeconfig --region $awsRegion --name $clusterName
+kubectl config current-context
+kubectl get nodes
+helm version
 ```
 
-Copie somente `SHA256:...` para o secret. Permita SSH do runner do GitHub à EC2.
+O contexto deve terminar em `cluster/togglemaster-fase3` (ou no nome retornado pelo Terraform, se você mudou o ambiente), e os nós devem estar `Ready`. Se `helm` não for encontrado, instale o [Helm](https://helm.sh/docs/intro/install/) na máquina local antes de continuar.
 
-Para o cliente do pipeline atual, use o fingerprint ECDSA quando a EC2 oferecer ECDSA e ED25519. Não substitua pela chave ED25519 nesse caso.
-
-No GitHub, crie **Settings → Environments → production**. Mantenha as credenciais Docker Hub nos secrets do repositório.
-
-Mantenha o nome exato do repositório na pasta, incluindo `_` ou `-`. Para outro caminho, configure `EC2_DEPLOY_DIR` com um caminho absoluto (`/opt/app`) ou relativo ao home do usuário SSH (`fiap_tc_fase_03`). Não use `~` nem `$HOME` no valor da variable. Não coloque essa variável no `.env`.
-
-Para imagens privadas, autentique o Docker **na EC2** com um token de leitura:
+Execute no mesmo terminal; estes comandos funcionam em PowerShell e Bash:
 
 ```bash
-docker login --username <USUARIO_DOCKERHUB>
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+helm upgrade --install argocd argo/argo-cd --namespace argocd --create-namespace --wait --timeout 10m
+kubectl get pods -n argocd
 ```
 
-## 2. Preencher o `.env` — EC2
+Para repositório privado, configure acesso de leitura em **ArgoCD → Settings → Repositories** antes de aplicar a Application.
 
-Na raiz do clone, crie o arquivo somente se ainda não existir:
-
-Substitua `<NOME_DO_REPOSITORIO>` pelo nome no GitHub. Se definiu `EC2_DEPLOY_DIR`, entre nessa pasta nos comandos abaixo.
+Publique os manifestos configurados e acompanhe o workflow **DevSecOps and GitOps** em `main`. Após o job `gitops` atualizar as cinco tags:
 
 ```bash
-cd "$HOME/<NOME_DO_REPOSITORIO>"
-test -f .env || cp deploy/.env.ec2.example .env
-chmod 600 .env
-nano .env
+git pull --ff-only
+kubectl apply -f gitops-manifests/argocd/application.yaml
+kubectl get applications -n argocd
+kubectl get pods -n togglemaster -w
 ```
 
-Preencha os valores de [`.env.ec2.example`](.env.ec2.example):
+O pipeline não acessa a EC2 nem aplica Deployments diretamente no cluster.
 
-| Variável | Preencher com |
-| --- | --- |
-| `DOCKERHUB_NAMESPACE` | Mesmo namespace configurado no GitHub |
-| `IMAGE_TAG` | SHA completo do commit que será implantado |
-| `AUTH_DATABASE_URL` | `postgres://auth_user:SENHA@HOST:5432/auth_db?sslmode=require` |
-| `FLAGS_DATABASE_URL` | `postgres://flags_user:SENHA@HOST:5432/flags_db?sslmode=require` |
-| `TARGETING_DATABASE_URL` | `postgres://targeting_user:SENHA@HOST:5432/targeting_db?sslmode=require` |
-| `MASTER_KEY` | Segredo novo; gere com `openssl rand -hex 32` |
-| `SERVICE_API_KEY` | No primeiro deploy: `PENDENTE_PRIMEIRO_DEPLOY`; substitua na etapa 4 |
-| `AWS_REGION` | Output `aws_region` |
-| `AWS_SQS_URL` | Output `sqs_queue_url` |
-| `AWS_DYNAMODB_TABLE` | Output `dynamodb_table_name` |
-
-- Em `HOST`, use o endpoint RDS sem a porta; mantenha `:5432` uma única vez na URL.
-- Codifique caracteres especiais nas credenciais da URL: `@` → `%40`, `#` → `%23`, `$` → `%24`.
-- Deixe `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN` vazios.
-- Não defina `AWS_ENDPOINT_URL` no deploy.
-- Não use a `MASTER_KEY` como `SERVICE_API_KEY`.
-
-## 3. Executar o primeiro deploy — GitHub
-
-1. Publique os arquivos na branch `main`.
-2. Abra **Actions → Build and deploy EC2**.
-3. Acompanhe a execução do push ou escolha **Run workflow → main**.
-4. Aguarde os jobs `build` e `deploy` terminarem.
-5. Na EC2, atualize `IMAGE_TAG` no `.env` com o SHA salvo em `deployed-image-tag`.
-
-O pipeline fornece namespace e tag durante a execução. Para comandos manuais, mantenha esses valores atualizados no `.env`.
-
-## 4. Emitir a chave de serviço — EC2, uma vez
-
-Na raiz do clone, crie a chave pelo Auth local:
+Para abrir a interface, execute na máquina local e mantenha esse terminal aberto:
 
 ```bash
-read -rsp 'MASTER_KEY definida no .env: ' MASTER_KEY; echo
-curl --fail-with-body -X POST http://127.0.0.1:8001/admin/keys \
-  -H "Authorization: Bearer $MASTER_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"evaluation-service"}'
-unset MASTER_KEY
+kubectl port-forward -n argocd service/argocd-server 8443:443
 ```
 
-Copie o campo `key` retornado para `SERVICE_API_KEY` no `.env`. Guarde a chave; ela aparece uma vez.
+Abra `https://localhost:8443`. Obtenha a senha inicial do usuário `admin`:
 
-```bash
-nano .env
-docker compose --env-file .env -f compose.ec2.yaml up -d --no-deps evaluation-service
+No PowerShell, em outro terminal local:
+
+```powershell
+$passwordBase64 = kubectl -n argocd get secret argocd-initial-admin-secret -o "jsonpath={.data.password}"
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($passwordBase64))
 ```
 
-## 5. Testar — EC2
-
-Verifique os cinco serviços pelo proxy:
+Ou, no Bash:
 
 ```bash
-for service in auth flags targeting evaluation analytics; do
-  curl --fail --show-error "http://localhost/$service/health"
-done
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 --decode
 ```
 
-Informe a chave emitida na etapa 4:
+## 5. Emitir a chave de serviço
+
+Mantenha o port-forward em outro terminal:
 
 ```bash
-read -rsp 'Chave de API: ' API_KEY; echo
-curl --fail-with-body http://localhost/auth/validate \
-  -H "Authorization: Bearer $API_KEY"
+kubectl port-forward -n togglemaster service/auth-service 18001:8001
+```
 
-curl --fail-with-body -X POST http://localhost/flags/flags \
-  -H "Authorization: Bearer $API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"teste-deploy","description":"Teste de deploy","is_enabled":true}'
+Na raiz do projeto:
 
-curl --fail-with-body -X POST http://localhost/targeting/rules \
-  -H "Authorization: Bearer $API_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"flag_name":"teste-deploy","is_enabled":true,"rules":{"type":"PERCENTAGE","value":100}}'
+```bash
+python scripts/issue-eks-service-key.py
+```
 
-curl --fail-with-body 'http://localhost/evaluation/evaluate?user_id=teste&flag_name=teste-deploy'
+O script preserva a `MASTER_KEY`, atualiza `SERVICE_API_KEY` e reinicia Evaluation.
+
+## 6. Testar
+
+```bash
+kubectl get deployments,pods,services -n togglemaster
+kubectl rollout status deployment/evaluation-service -n togglemaster
+kubectl port-forward -n togglemaster service/evaluation-service 18004:8004
+```
+
+Em outro terminal:
+
+```bash
+curl --fail "http://localhost:18004/health"
+```
+
+Abra port-forwards de Flags (`18002:8002`) e Targeting (`18003:8003`). Obtenha a chave de API do Secret e crie uma flag/regra:
+
+```bash
+API_KEY="$(kubectl get secret togglemaster-secrets -n togglemaster -o jsonpath='{.data.SERVICE_API_KEY}' | base64 --decode)"
+curl --fail-with-body -X POST http://localhost:18002/flags -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' -d '{"name":"teste-deploy","is_enabled":true}'
+curl --fail-with-body -X POST http://localhost:18003/rules -H "Authorization: Bearer $API_KEY" -H 'Content-Type: application/json' -d '{"flag_name":"teste-deploy","is_enabled":true,"rules":{"type":"PERCENTAGE","value":100}}'
+curl --fail "http://localhost:18004/evaluate?user_id=teste&flag_name=teste-deploy"
 unset API_KEY
 ```
 
-Confirme `result: true`. No console AWS, abra **DynamoDB → Tables → valor de `AWS_DYNAMODB_TABLE` → Explore table items** e confira o evento de `teste-deploy`.
+Confirme `result: true` e o evento na tabela DynamoDB indicada pelo Terraform. Se flag/regra já existirem, repita apenas a avaliação.
 
-Repita apenas a avaliação se a flag e a regra já existirem.
-
-Na máquina local, teste o acesso externo:
-
-```bash
-curl --fail http://<IP_EC2>/auth/health
-curl --fail 'http://<IP_EC2>/evaluation/evaluate?user_id=teste&flag_name=teste-deploy'
-```
+Se houver falha de credenciais AWS nos serviços, confira o DaemonSet `eks-pod-identity-agent` em `kube-system`, as duas associações com `aws eks list-pod-identity-associations --region <REGIAO> --cluster-name <CLUSTER>` e os logs de Evaluation/Analytics. As associações precisam corresponder ao namespace e às ServiceAccounts dos manifestos. Pods antigos precisam ser recriados após configurar a identidade. Os SDKs atuais do projeto suportam Pod Identity pela cadeia padrão de credenciais.
 
 ## Rotina
 
-**Publicar código:** faça push em `main` e acompanhe o workflow.
-
-**Aplicar alterações do `.env`:** na EC2, atualize `IMAGE_TAG` com `cat deployed-image-tag`, edite `.env` e execute:
-
-```bash
-cd "$HOME/<NOME_DO_REPOSITORIO>"
-docker compose --env-file .env -f compose.ec2.yaml config --quiet
-docker compose --env-file .env -f compose.ec2.yaml up -d --wait
-```
-
-**Consultar estado e logs:**
-
-```bash
-docker compose --env-file .env -f compose.ec2.yaml ps
-docker compose --env-file .env -f compose.ec2.yaml logs --tail=100 evaluation-service analytics-service proxy
-cat deployed-image-tag
-```
-
-**Alterar o proxy:** edite [nginx.conf](nginx.conf) e publique em `main`.
-
-**Recuperar uma versão:** reverta o commit no GitHub e acompanhe o novo deploy.
-
-**Investigar falhas de eventos:** confira os logs de Evaluation/Analytics e a fila indicada pelo output `sqs_dlq_url` no console SQS.
-
-## Falha de conexão SSH
-
-Para `dial tcp ...:22: i/o timeout`, confira nesta ordem:
-
-1. AWS → EC2 → instância: confirme `Running` e status checks aprovados.
-2. Copie o **Public IPv4 address** atual para o secret `EC2_HOST` no GitHub. Use somente o IP ou DNS, sem `http://`, usuário ou `:22`.
-3. Confira o Security Group associado à instância: permita TCP 22 a partir do runner do GitHub. Não use apenas o IP do seu computador para o deploy.
-4. Confira a tabela de rotas da subnet da EC2: `0.0.0.0/0` deve apontar para o Internet Gateway.
-5. Se houver Network ACL personalizada, permita entrada TCP 22 e saída para as portas efêmeras do cliente (`1024–65535`).
-6. Teste SSH da máquina local e confira o firewall e o serviço SSH na EC2.
-7. No GitHub, escolha **Re-run failed jobs**.
-
-Após parar/iniciar ou substituir a EC2, confira novamente `EC2_HOST`. Se trocar a instância, atualize também o fingerprint e a chave SSH, se necessário.
+- Publique código por PR. Em `main`, o CI publica imagens aprovadas no ECR e atualiza as cinco tags.
+- Confira a Application `togglemaster` como `Synced/Healthy` no ArgoCD.
+- Para reverter, reverta o código e publique uma nova versão.
+- Se um scan detectar CRITICAL, corrija a dependência/imagem; não remova o bloqueio.
+- Consulte falhas com `kubectl logs -n togglemaster deployment/<servico> --tail=100`.

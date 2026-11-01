@@ -13,7 +13,6 @@ Sua única função é:
 * **Credenciais da AWS:** Este serviço **DEVE** ter credenciais da AWS para acessar SQS e DynamoDB. Configure-as em seu terminal (via `aws configure`) ou defina as variáveis de ambiente:
     * `AWS_ACCESS_KEY_ID`
     * `AWS_SECRET_ACCESS_KEY`
-    * `AWS_SESSION_TOKEN` (se estiver usando o AWS Academy)
 * **Recursos da AWS:** Você precisa ter criado a Fila SQS e a Tabela DynamoDB no console.
 
 ## 🚀 Preparando o DynamoDB

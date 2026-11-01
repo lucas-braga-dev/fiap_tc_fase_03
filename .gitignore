@@ -36,6 +36,7 @@ override.tf.json
 *_override.tf.json
 .terraform.tfstate.lock.info
 # Keep .terraform.lock.hcl for reproducible provider versions.
+backend.hcl
 
 # Python dependencies and generated files
 __pycache__/
