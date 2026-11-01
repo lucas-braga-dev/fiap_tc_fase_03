@@ -1,43 +1,49 @@
-# Checklist de entrega — Fase 3
+# Relatório de entrega — Tech Challenge Fase 3
 
-## Participantes
+Preencha os campos e inclua o print da estimativa antes de exportar para **PDF ou TXT**, conforme o [enunciado](<POSTECH - Tech Challenge - Fase 3.pdf>), páginas 5–6. Este Markdown é a fonte do relatório, não substitui o arquivo final exigido.
 
-- Nome:
-- Nome:
+## Participantes e links
 
-## Links
+| Campo | Preencher |
+| --- | --- |
+| Participantes | Nomes completos de todos os integrantes |
+| Código-fonte | URL do repositório e revisão entregue |
+| Documentação | URL acessível do README/documentação publicada |
+| Vídeo | URL do vídeo de até 20 minutos |
+| Pipeline bloqueado | URL da execução e commit com a alteração que falhou no gate de segurança |
+| Pipeline corrigido | URL da execução aprovada e commit da correção |
+| GitOps | URL do commit do bot e evidência da revisão sincronizada pelo ArgoCD |
 
-- Código:
-- Documentação:
-- Vídeo de até 20 minutos:
+## Solução
 
-## Evidências a produzir
-
-- [ ] Terraform plan/apply e recursos AWS.
-- [ ] EKS e Node Groups.
-- [ ] Três instâncias RDS, ElastiCache, SQS, DynamoDB e cinco ECR.
-- [ ] Backend remoto S3.
-- [ ] CI dos cinco serviços em PR/main: testes, lint, SAST, SCA e scan de imagens.
-- [ ] Pipeline bloqueando uma falha de segurança e passando após correção.
-- [ ] CI atualizando as cinco tags na pasta GitOps.
-- [ ] ArgoCD mostrando os cinco microsserviços e sincronizando uma alteração.
-- [ ] Avaliação retornando resultado e evento persistido no DynamoDB.
-- [ ] Print da estimativa de custos AWS.
-
-## Demonstração de segurança
-
-1. Crie uma branch temporária para demonstrar uma falha SAST ou dependência vulnerável.
-2. Abra PR e mostre a falha no job de segurança.
-3. Corrija na mesma branch e mostre os jobs aprovados.
-4. Não faça merge da versão vulnerável nem desabilite os scanners.
+ToggleMaster com cinco microsserviços: Auth, Flags, Targeting, Evaluation e Analytics. Terraform provisiona rede, EKS/Node Groups, três RDS PostgreSQL, ElastiCache Redis, SQS, DynamoDB, cinco ECR e IAM, com estado remoto S3. O CI valida os cinco serviços, executa testes, lint, SAST, SCA e scan das imagens. Após aprovação, publica no ECR com SHA e atualiza os manifestos GitOps. O ArgoCD reconcilia o EKS automaticamente.
 
 ## Desafios e decisões
 
-- Migração da EC2/Compose para EKS/GitOps:
-- Conta pessoal AWS com EKS Pod Identity e usuário IAM exclusivo de publicação no ECR:
-- Separação de estados e preservação do ambiente anterior:
-- Gestão de credenciais:
-- Validação de destinos HTTP internos, bloqueio de redirects e testes contra SSRF:
-- Estimativa de custos e encerramento dos recursos:
+| Desafio | Decisão e consequência |
+| --- | --- |
+| Restrição de providers OIDC pela SCP da conta | EKS Pod Identity para workloads; usuário IAM exclusivo e restrito para publicação ECR. A access key do CI exige rotação. |
+| Limites do plano gratuito | Tipo x86_64 elegível confirmado na região e backup RDS de um dia; consumo continua sujeito aos créditos e custos AWS. |
+| Acesso ao endpoint EKS | CIDR restrito ao IP público de administração, atualizado via Terraform quando necessário. |
+| Credenciais dos bancos | Senha master gerenciada pelo RDS/Secrets Manager e bootstrap sem senhas no Git; credenciais da aplicação em Secret Kubernetes. |
+| CVEs na base dos três containers Python | Migração Bookworm → Trixie e atualização Debian, mantendo o gate CRITICAL ativo. Anexar diffs e execuções bloqueada/aprovada. |
+| Rastreabilidade da implantação | Tags SHA no ECR e atualização em Git antes do sync automático pelo ArgoCD. |
 
-Exporte este documento preenchido para PDF ou TXT. Não entregue o checklist vazio.
+Complete com os resultados observados e eventuais limitações da entrega. Não declare resultados sem evidências. A [operação](OPERACAO.md) documenta rotação, rollback e encerramento; o [roteiro](ROTEIRO-APRESENTACAO.md) organiza a demonstração.
+
+## Estimativa de custos AWS
+
+Insira o print da estimativa com região, quantidades e hipóteses de uso. Considere EKS, nós EC2, três RDS, Redis, NAT, armazenamento, logs e tráfego. Informe a data e o valor estimado; diferencie estimativa, créditos e gasto real. Em TXT, acompanhe o arquivo com a imagem da estimativa; em PDF, inclua-a no próprio relatório. Não use dados de contas ou arquiteturas anteriores.
+
+## Checklist final
+
+- [ ] Nomes, revisão do código, documentação e vídeo preenchidos e acessíveis ao avaliador.
+- [ ] Vídeo com duração de até 20 minutos, conforme o roteiro.
+- [ ] Terraform plan/apply ou resultado final na AWS, incluindo rede, EKS e bancos.
+- [ ] Backend remoto S3 demonstrado.
+- [ ] Alteração que falha no gate de segurança, correção e execução aprovada identificadas.
+- [ ] Cinco imagens publicadas com SHA e tags atualizadas pelo CI no GitOps.
+- [ ] ArgoCD detectando a nova revisão e sincronizando automaticamente os cinco serviços.
+- [ ] Avaliação e evento DynamoDB correlacionados como evidência funcional.
+- [ ] Print da estimativa de custos inserido e hipóteses descritas.
+- [ ] Relatório exportado em PDF/TXT, sem chaves, senhas ou conteúdo de estados/Secrets.

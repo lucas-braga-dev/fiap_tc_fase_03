@@ -1,6 +1,10 @@
 # ToggleMaster — Tech Challenge Fase 3
 
-Execute os comandos em Bash. Para o CMD/PowerShell, adapte a sintaxe ou use WSL.
+Cinco microsserviços de feature flags com infraestrutura AWS em Terraform, CI DevSecOps no GitHub Actions e entrega contínua por ArgoCD. Somente imagens aprovadas são publicadas no ECR com a tag do commit; o ArgoCD monitora os manifestos e sincroniza o EKS.
+
+Os guias usam **PowerShell na máquina local**. O CMD não interpreta `$nome`, `Invoke-RestMethod` ou `ConvertTo-Json`. Não copie o prefixo do prompt (`fiap-tc-fase-03>`).
+
+Comece na raiz deste repositório. Cada guia informa a pasta e os terminais necessários. Para manutenção, diagnóstico e encerramento, consulte [operação](docs/OPERACAO.md) e [solução de problemas](docs/SOLUCAO-DE-PROBLEMAS.md).
 
 ```mermaid
 flowchart TD
@@ -24,7 +28,7 @@ Siga [infrasctructure/eks/README.md](infrasctructure/eks/README.md). Use o estad
 
 Os serviços no EKS usam credenciais temporárias por **EKS Pod Identity**. O GitHub Actions publica no ECR com access key de um usuário IAM exclusivo e restrito, configurada nos GitHub Secrets. Esse fluxo dispensa a criação de providers IAM OIDC na conta.
 
-Não aplique o novo cenário no estado da EC2. Revise o custo de EKS, NAT Gateway, três RDS e ElastiCache antes do apply.
+Revise o custo de EKS, nós, NAT Gateway, três RDS e ElastiCache antes do apply. Nunca misture estados de stacks diferentes.
 
 ## 2. Configurar e publicar
 
@@ -32,17 +36,19 @@ Siga [deploy/README.md](deploy/README.md), na ordem:
 
 1. Gere os manifestos com os outputs Terraform.
 2. Inicialize bancos e Secrets.
-3. Configure AWS/GitHub e instale ArgoCD.
-4. Publique em `main` e acompanhe o CI e o ArgoCD.
+3. Crie a access key do usuário IAM de publicação e configure os Secrets e Variables do GitHub.
+4. Instale ArgoCD no EKS, publique em `main` e espere `publish` e `gitops` passarem antes de aplicar a Application. Confirme `Synced/Healthy` e Pods `Running`.
 5. Emita `SERVICE_API_KEY` e teste o fluxo.
 
 ## 3. Entregar
 
-Preencha [docs/ENTREGA-FASE-3.md](docs/ENTREGA-FASE-3.md). Grave vídeo de até 20 minutos com IaC, bloqueio de segurança e sincronização GitOps.
+Use o [roteiro de apresentação](docs/ROTEIRO-APRESENTACAO.md) para gravar o vídeo de até 20 minutos e preencha o [relatório de entrega](docs/ENTREGA-FASE-3.md). Os [requisitos oficiais](<docs/POSTECH - Tech Challenge - Fase 3.pdf>) definem as evidências obrigatórias.
 
-## Retomar e encerrar
+## Operação e desenvolvimento
 
-Siga [docs/RETOMADA.md](docs/RETOMADA.md) para continuar amanhã e remover os ambientes.
+O [guia de operação](docs/OPERACAO.md) cobre verificação de saúde, publicação, rollback, credenciais, custos e encerramento. Não versione `.env`, access keys, Secrets, estados, planos ou outputs Terraform.
+
+Para desenvolvimento, o [Compose](docker-compose.yaml) usa PostgreSQL, Redis e LocalStack. Configure seu `.env` a partir de [`.env.example`](.env.example) antes de executar `docker compose up -d --build`. Código, contratos de API e testes ficam em `apps-togglemaster/src/<servico>`; o workflow define os testes e gates de entrega.
 
 ## Arquivos
 
@@ -53,6 +59,6 @@ Siga [docs/RETOMADA.md](docs/RETOMADA.md) para continuar amanhã e remover os am
 | [gitops-manifests/aws](gitops-manifests/aws/) | Cinco serviços com RDS, ElastiCache e AWS reais |
 | [gitops-manifests/argocd/application.yaml](gitops-manifests/argocd/application.yaml) | Sync automático com prune e self-heal |
 | [docker-compose.yaml](docker-compose.yaml) | Desenvolvimento local |
-| [gitops-manifests/k8s-manifests](gitops-manifests/k8s-manifests/) | Kubernetes local com LocalStack |
-| [infrasctructure/README.md](infrasctructure/README.md) | Infraestrutura EC2 anterior |
-| [deploy/legacy/README.md](deploy/legacy/README.md) | Deploy manual alternativo na EC2 |
+| [scripts](scripts/) | Configuração, bootstrap, emissão de chave e atualização de imagens |
+| [docs/OPERACAO.md](docs/OPERACAO.md) | Gestão do ambiente EKS e encerramento |
+| [docs/ROTEIRO-APRESENTACAO.md](docs/ROTEIRO-APRESENTACAO.md) | Demonstração e evidências da entrega |

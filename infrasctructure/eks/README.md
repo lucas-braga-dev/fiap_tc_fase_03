@@ -1,18 +1,18 @@
 # Infraestrutura EKS — Fase 3
 
-Use sua conta pessoal AWS. Execute na máquina local.
+Use sua conta pessoal AWS. Execute no **PowerShell da máquina local**. Comece na raiz do repositório. Não execute estes comandos dentro de um Pod ou por SSH nos nós.
 
 ## 1. Preparar
 
 1. Instale AWS CLI, Terraform >= 1.10, kubectl, Helm e Python.
-2. Configure as credenciais AWS.
+2. Configure as credenciais AWS da identidade que provisionará o cluster e confira `aws sts get-caller-identity`. Essa identidade é diferente do usuário restrito que o pipeline usará para publicar imagens.
 3. Crie um bucket S3 para o estado, se ainda não existir.
 4. Configure:
 
-```bash
+```powershell
 cd infrasctructure/eks
-cp backend.hcl.example backend.hcl
-cp terraform.tfvars.example terraform.tfvars
+if (-not (Test-Path backend.hcl)) { Copy-Item backend.hcl.example backend.hcl }
+if (-not (Test-Path terraform.tfvars)) { Copy-Item terraform.tfvars.example terraform.tfvars }
 ```
 
 Edite:
@@ -20,7 +20,7 @@ Edite:
 | Arquivo | Preencher |
 | --- | --- |
 | `backend.hcl` | Bucket, região e chave `fase3/eks/terraform.tfstate` |
-| `terraform.tfvars` | Região, ambiente distinto da EC2 e seu IP público em `admin_cidrs` |
+| `terraform.tfvars` | Região, ambiente e seu IP público em `admin_cidrs` |
 
 Para descobrir seu IPv4 público no PowerShell, execute `Invoke-RestMethod https://checkip.amazonaws.com`. Preencha `admin_cidrs` com o endereço retornado seguido de `/32`. O endereço `203.0.113.10/32` do exemplo não serve para provisionar o EKS.
 
@@ -32,6 +32,8 @@ O launch template exige IMDSv2 com hop limit 1 para limitar o acesso dos Pods à
 
 Essa configuração não cria providers IAM OIDC. Ela evita a dependência das ações `iam:*Provider*` bloqueadas na experiência simplificada da AWS; outras restrições da conta ainda podem impedir recursos. Referências: [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html) e [políticas gerenciadas para projetos](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html).
 
+Na experiência básica/simplificada, a AWS gerencia as SCPs da organização. Ser dono do projeto não garante acesso à conta de gerenciamento ou à edição dessas políticas. `AccessDenied` com `explicit deny in a service control policy` não é corrigido adicionando `AdministratorAccess`. O fluxo deste repositório foi adaptado para dispensar providers OIDC; não é necessário ativar os recursos avançados apenas para seguir esse fluxo. Veja [as restrições e a solução adotada](../../docs/SOLUCAO-DE-PROBLEMAS.md#bloqueio-de-provider-oidc-por-scp).
+
 Não versione `backend.hcl` nem `terraform.tfvars`.
 
 ### Restrições do plano gratuito: EC2 e RDS
@@ -39,12 +41,21 @@ Não versione `backend.hcl` nem `terraform.tfvars`.
 O default dos nós é `m7i-flex.large` (x86_64, compatível com as imagens `linux/amd64` do pipeline), listado pela AWS como elegível para o novo Free Tier. Confirme na região da conta antes do apply:
 
 ```powershell
-aws ec2 describe-instance-types --region us-east-2 --filters Name=free-tier-eligible,Values=true --query 'InstanceTypes[].InstanceType' --output table
+aws ec2 describe-instance-types --region us-east-2 --filters "Name=free-tier-eligible,Values=true" --query "InstanceTypes[].InstanceType" --output table
 ```
 
 Use a região do seu `terraform.tfvars`. Se necessário, escolha outro tipo x86_64 elegível com capacidade para os serviços e ArgoCD. Não use `t4g` com as imagens atuais, pois essa família exige ARM64. `t3.medium` não é elegível nesse plano; `t3.micro` e `t3.small` oferecem menos memória e capacidade de Pods. A elegibilidade não significa custo zero: o consumo continua sujeito aos créditos, cotas e limites do plano. Consulte [Free Tier EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-free-tier-usage.html).
 
-O backup RDS agora usa `rds_backup_retention_days = 1`, reduzindo a retenção anterior de sete dias. O valor é configurável; períodos maiores podem ser rejeitados pelo plano gratuito. Os três RDS e demais serviços continuam sujeitos aos limites próprios da conta.
+O backup RDS usa `rds_backup_retention_days = 1`. O valor é configurável; períodos maiores podem ser rejeitados pelo plano gratuito. Os três RDS e demais serviços continuam sujeitos aos limites próprios da conta.
+
+No seu `terraform.tfvars`, confira explicitamente estes valores (a configuração local prevalece sobre os defaults do código):
+
+```hcl
+node_instance_types       = ["m7i-flex.large"]
+rds_backup_retention_days = 1
+```
+
+Se a tabela de elegibilidade aparecer vazia, repita sem `--query`, com `--output json`. No CMD, aspas simples não delimitam argumentos como no Bash; use sempre as aspas duplas mostradas acima. Confirme a elegibilidade na conta e região de destino antes do provisionamento.
 
 Se o Node Group terminou em `CREATE_FAILED`, gere um novo plano após corrigir `node_instance_types`. A mudança do tipo deve provocar substituição do Node Group. Se o plano não mostrar substituição, force somente esse recurso:
 
@@ -57,7 +68,9 @@ Revise a substituição antes de aplicar. Mantenha o estado e os demais recursos
 
 ## 2. Validar e provisionar
 
-```bash
+Execute **dentro de `infrasctructure/eks`**, após preencher os dois arquivos. Se um comando falhar, pare e corrija a causa antes do próximo.
+
+```powershell
 aws sts get-caller-identity
 terraform init -backend-config=backend.hcl
 terraform fmt -check -recursive
@@ -67,35 +80,37 @@ terraform apply eks.tfplan
 terraform output
 ```
 
-Revise o plan e a estimativa de custos antes do apply. Este cenário cria recursos novos; não migra automaticamente os dados da EC2.
-
-### Retomar um apply parcial da configuração anterior
-
-Mantenha a mesma conta, backend, chave de estado e `environment`. Remova `github_repository` e `github_oidc_provider_arn` do seu `terraform.tfvars`, caso existam. Gere um novo `eks.tfplan` com os comandos acima; não reutilize o plano anterior nem apague o estado. Os recursos já registrados serão reutilizados. Revise eventuais exclusões de roles/providers da configuração anterior: uma SCP também pode bloquear sua leitura ou remoção, exigindo resolução administrativa. Não remova recursos do estado para ocultar esse erro.
-
-Se os Pods já estavam implantados com IRSA, siga a atualização dos manifestos e reinício descritos no guia de deploy. Não altere o provider OIDC externo que não era gerenciado por este estado.
+Revise o plan e a estimativa de custos antes do apply. Preserve o backend e revise substituições e exclusões antes de aplicar.
 
 ## 3. Conectar ao cluster
 
-Na raiz do projeto:
+Volte para a raiz do projeto com `Set-Location ../..`, se ainda estiver em `infrasctructure/eks`.
 
-```bash
-mkdir -p tmp
-terraform -chdir=infrasctructure/eks output -json > tmp/eks-outputs.json
-aws eks update-kubeconfig --region <REGIAO> --name <OUTPUT_CLUSTER_NAME>
+```powershell
+New-Item -ItemType Directory -Force tmp | Out-Null
+$clusterName = terraform -chdir=infrasctructure/eks output -raw cluster_name
+$awsRegion = terraform -chdir=infrasctructure/eks output -raw aws_region
+aws eks update-kubeconfig --region $awsRegion --name $clusterName
 kubectl config current-context
-kubectl get nodes
+kubectl get nodes --request-timeout=15s
 kubectl rollout status daemonset/eks-pod-identity-agent -n kube-system
-aws eks list-pod-identity-associations --region <REGIAO> --cluster-name <OUTPUT_CLUSTER_NAME>
+aws eks list-pod-identity-associations --region $awsRegion --cluster-name $clusterName
+terraform -chdir=infrasctructure/eks output -json | Set-Content -Encoding utf8 tmp/eks-outputs.json
 ```
 
 Use a identidade AWS que criou o cluster. Se seu IP mudar, atualize `admin_cidrs` e aplique o Terraform.
 
+Antes de avançar, confirme os dois nós `Ready`, o agente disponível e duas associações Pod Identity no namespace `togglemaster`. `i/o timeout` ao executar kubectl indica falha de conexão; compare seu IP público com os CIDRs permitidos seguindo [o diagnóstico de acesso](../../docs/SOLUCAO-DE-PROBLEMAS.md#kubectl-com-io-timeout). Não precisa recriar o cluster para corrigir o IP permitido.
+
 Os outputs incluem endpoints, ARNs dos segredos RDS e roles. As senhas master são gerenciadas pelo RDS no Secrets Manager.
+
+O uso de `Set-Content -Encoding utf8` evita gerar JSON UTF-16 no Windows PowerShell 5.1. Os scripts aceitam UTF-8 com ou sem BOM. Não versione `tmp/eks-outputs.json`. Com as verificações acima aprovadas, siga [o deploy](../../deploy/README.md).
 
 ## Atualizar
 
-```bash
+Na raiz do projeto:
+
+```powershell
 terraform -chdir=infrasctructure/eks plan -out=eks.tfplan
 terraform -chdir=infrasctructure/eks apply eks.tfplan
 ```
