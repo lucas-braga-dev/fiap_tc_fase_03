@@ -150,10 +150,25 @@ jobs:
           context: apps-togglemaster/src/${{ matrix.service }}
           load: true
           push: false
+          pull: true
+          # Refresh Python stages so apt security updates are never reused from cache.
+          no-cache-filters: ${{ (matrix.service == 'flag-service' || matrix.service == 'targeting-service' || matrix.service == 'analytics-service') && 'builder,runtime' || '' }}
           platforms: linux/amd64
           tags: togglemaster/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Check Python runtime dependencies
+        if: matrix.service == 'flag-service' || matrix.service == 'targeting-service' || matrix.service == 'analytics-service'
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker run --rm --entrypoint python "togglemaster/$SERVICE:$IMAGE_TAG" -m pip check
+          if [ "$SERVICE" = "analytics-service" ]; then
+            docker run --rm --entrypoint python "togglemaster/$SERVICE:$IMAGE_TAG" -c 'import flask, gunicorn, dotenv, werkzeug, sqlite3, boto3'
+          else
+            docker run --rm --entrypoint python "togglemaster/$SERVICE:$IMAGE_TAG" -c 'import flask, gunicorn, dotenv, werkzeug, sqlite3, psycopg2, requests'
+          fi
       - name: Container scan - block CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
         with:

@@ -3,12 +3,17 @@
 # ============================================================
 # Estágio 1: construção das dependências
 # ============================================================
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.11-slim-trixie AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /build
+
+# Apply Debian security updates before installing Python dependencies.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN python -m venv /opt/venv
 
@@ -27,7 +32,7 @@ RUN pip install \
 # ============================================================
 # Estágio 2: execução
 # ============================================================
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.11-slim-trixie AS runtime
 
 ARG DEFAULT_PORT=8003
 ARG DEFAULT_WORKERS=2
@@ -40,7 +45,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN groupadd --system app \
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app \
     && useradd \
        --system \
        --gid app \

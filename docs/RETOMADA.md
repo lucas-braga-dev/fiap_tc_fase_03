@@ -20,6 +20,10 @@
 
 Ainda execute o scan das imagens no CI e os testes reais no EKS. Revise as exceções pontuais G704 documentadas no Evaluation junto dos testes de destino permitido e bloqueio de redirects.
 
+O scan do commit `1b1175cc4c68abc77173841e822bbd41b738a1da` identificou duas vulnerabilidades CRITICAL iguais nos três containers Python baseados em Debian Bookworm: `libsqlite3-0` (CVE-2025-7458) e `zlib1g` (CVE-2023-45853). As dependências Python não apresentaram achados nesse scan. Os Dockerfiles foram migrados para `python:3.11-slim-trixie`, mantendo Python 3.11 e atualizando os pacotes Debian nos dois estágios. O CI busca imagens base atuais, reconstrói os estágios Python sem cache e verifica imports e `pip check` antes do Trivy. A aprovação das novas imagens precisa ser confirmada em uma nova execução do pipeline; o bloqueio CRITICAL continua ativo, inclusive para vulnerabilidades sem correção.
+
+Referência da correção SQLite no Trixie: [Debian Security Tracker](https://security-tracker.debian.org/tracker/CVE-2025-7458).
+
 ## Amanhã
 
 A autenticação foi adaptada para EKS Pod Identity e usuário IAM exclusivo do GitHub Actions, sem providers IAM OIDC. A access key deve ser criada no IAM e cadastrada nos GitHub Secrets após o apply. Os testes locais não confirmam que todas as operações sejam permitidas pelas políticas da conta AWS.
