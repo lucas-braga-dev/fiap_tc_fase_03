@@ -2,7 +2,7 @@
 
 Execute no **PowerShell da sua máquina local, na raiz do projeto**. Todos os comandos deste guia usam esse terminal, exceto o exemplo explicitamente marcado como Bash. No CMD, abra uma sessão com `powershell` antes de continuar e confirme a pasta com `Get-Location`.
 
-Tenha o EKS provisionado, contexto kubectl correto, nós `Ready` e agente Pod Identity disponível. Se ainda não conectou ou gerou os outputs, siga [a etapa 3 do guia EKS](PROVISIONAMENTO.md#3-conectar-ao-cluster). Timeout de conexão deve ser resolvido antes de continuar.
+Tenha o EKS provisionado, contexto kubectl correto, nós `Ready` e agente Pod Identity disponível. Se ainda não conectou ou gerou os outputs, siga [a etapa 3 do guia EKS](01-PROVISIONAMENTO.md#3-conectar-ao-cluster). Timeout de conexão deve ser resolvido antes de continuar.
 
 Execute as etapas em ordem. Em uma retomada, confira o que já está concluído: o bootstrap da etapa 2 só deve rodar uma vez; a emissão da chave da etapa 5 só precisa ser repetida para gerar uma nova chave. Não refaça bancos e Secrets para corrigir imagens ou acesso ao cluster.
 
@@ -234,7 +234,7 @@ Remove-Variable apiKey, keyBase64, headers
 
 Execute cada chamada e confira a resposta antes de avançar; se uma falhar, corrija a causa antes da próxima. O health deve retornar `status: ok`, e a avaliação deve retornar `result: true`. Se a flag/regra já foi criada com sucesso, não repita os POSTs: execute apenas a avaliação. Os exemplos usam `Invoke-RestMethod` para evitar diferenças de alias de `curl` e escape de JSON no Windows. Se preferir curl para uma consulta simples, use `curl.exe --fail http://localhost:18004/health`.
 
-Não use `API_KEY="$(...)"`, `base64 --decode` ou `unset` no CMD/PowerShell: são formas Bash. Não exiba a chave de serviço no terminal para copiar nem a inclua nas evidências.
+Não use `API_KEY="$(...)"`, `base64 --decode` ou `unset` no CMD/PowerShell: são formas Bash. Não exiba a chave de serviço no terminal para copiar nem a inclua em registros compartilhados.
 
 ### Confirmar o evento no DynamoDB
 
@@ -245,7 +245,7 @@ kubectl logs -n togglemaster deployment/analytics-service --tail=50
 terraform -chdir=infrasctructure/eks output -raw dynamodb_table_name
 ```
 
-Nos logs, procure o evento da flag `teste-deploy` salvo no DynamoDB. No console AWS, na mesma conta/região, abra **DynamoDB → Tables → nome retornado pelo output → Explore table items** e confira um item com `user_id = teste`, `flag_name = teste-deploy` e `result = true`. Aguarde o consumidor SQS processar antes de concluir que o item não existe. Salve a evidência do evento, sem incluir Secrets.
+Nos logs, procure o evento da flag `teste-deploy` salvo no DynamoDB. No console AWS, na mesma conta/região, abra **DynamoDB → Tables → nome retornado pelo output → Explore table items** e confira um item com `user_id = teste`, `flag_name = teste-deploy` e `result = true`. Aguarde o consumidor SQS processar antes de concluir que o item não existe. A presença desse item confirma o fluxo Evaluation → SQS → Analytics → DynamoDB.
 
 Se houver falha de credenciais AWS nos serviços, confira o DaemonSet `eks-pod-identity-agent` em `kube-system`, as duas associações com `aws eks list-pod-identity-associations --region <REGIAO> --cluster-name <CLUSTER>` e os logs de Evaluation/Analytics. As associações precisam corresponder ao namespace e às ServiceAccounts dos manifestos. Pods antigos precisam ser recriados após configurar a identidade. Os SDKs atuais do projeto suportam Pod Identity pela cadeia padrão de credenciais.
 

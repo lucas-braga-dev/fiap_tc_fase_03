@@ -1,6 +1,6 @@
 # Operação DevSecOps
 
-Execute no PowerShell local, na raiz do repositório, usando sua identidade administrativa AWS. O usuário IAM do GitHub é exclusivo para publicação no ECR. Para a primeira instalação, use os guias de [infraestrutura](PROVISIONAMENTO.md) e [deploy](DEPLOY.md).
+Execute no PowerShell local, na raiz do repositório, usando sua identidade administrativa AWS. O usuário IAM do GitHub é exclusivo para publicação no ECR. Para a primeira instalação, use os guias de [infraestrutura](01-PROVISIONAMENTO.md) e [deploy](02-DEPLOY.md).
 
 ## Verificar o ambiente
 
@@ -48,7 +48,7 @@ Revise o plano antes do apply. Mantenha a conta, o backend e a chave de estado. 
 | --- | --- |
 | Senhas master RDS | Gerenciadas pelo RDS no Secrets Manager |
 | Usuários dos bancos | Criados no bootstrap; alterações posteriores exigem migração coordenada do banco e Secret |
-| `MASTER_KEY` | Preservada em `togglemaster-secrets`; não expor em Git, logs ou vídeo |
+| `MASTER_KEY` | Preservada em `togglemaster-secrets`; não expor em Git ou logs |
 | `SERVICE_API_KEY` | Emitida por `scripts/issue-eks-service-key.py`; preserva a master e reinicia Evaluation |
 | Access key do CI | Criada no IAM fora do Terraform e mantida nos GitHub Secrets |
 | Credenciais AWS dos Pods | Temporárias, obtidas por Pod Identity |
@@ -67,7 +67,7 @@ kubectl logs -n togglemaster deployment/analytics-service --tail=100
 
 Para um container reiniciando, consulte `kubectl logs -n togglemaster NOME_DO_POD --previous` e `kubectl describe pod NOME_DO_POD -n togglemaster`, substituindo o nome. Health HTTP não substitui o fluxo SQS → Analytics → DynamoDB.
 
-Monitore consumo e créditos em Billing/Cost Explorer. Elegibilidade Free Tier não garante custo zero. EKS, nós, NAT, RDS, Redis, armazenamento, logs e tráfego devem entrar na estimativa de custos. Registre o print exigido antes de encerrar o ambiente.
+Monitore consumo e créditos em Billing/Cost Explorer. Elegibilidade Free Tier não garante custo zero. EKS, nós, NAT, RDS, Redis, armazenamento, logs e tráfego devem entrar na estimativa de custos. Consulte o consumo antes e depois de encerrar o ambiente para identificar recursos remanescentes.
 
 ## Desenvolvimento local
 
@@ -104,7 +104,7 @@ Os serviços ficam em localhost nas portas 8001–8005. Use os exemplos HTTP da 
 
 ## Encerrar o ambiente
 
-Execute somente após concluir as evidências e confirmar que o ambiente pode ser encerrado. Exporte os dados que precisar: os RDS usam `skip_final_snapshot = true`.
+Execute quando terminar de usar o ambiente e puder remover os recursos e seus dados. Exporte os dados que precisar: os RDS usam `skip_final_snapshot = true`.
 
 1. Desative a sincronização automática da Application antes de limpar aplicações; se remover a Application, confira seus finalizers e o efeito sobre os recursos.
 2. Remova eventuais Services LoadBalancer/Ingress e espere os balanceadores serem excluídos.

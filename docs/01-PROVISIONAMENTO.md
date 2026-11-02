@@ -1,6 +1,24 @@
 # Infraestrutura EKS — Fase 3
 
-Use sua conta pessoal AWS. Execute no **PowerShell da máquina local**. Comece na raiz do repositório. Não execute estes comandos dentro de um Pod ou por SSH nos nós.
+Este e o primeiro guia da sequência **01 → 02 → 03** em [docs/](../README.md#como-seguir-a-documentação). Ao concluí-lo, você terá a infraestrutura AWS provisionada e acesso ao cluster para seguir o deploy.
+
+Use uma conta AWS sob sua administração. Execute no **PowerShell da máquina local**. Comece na raiz do repositório. Não execute estes comandos dentro de um Pod ou por SSH nos nós.
+
+## Antes de começar: obter o projeto
+
+Use uma máquina com Git e PowerShell instalados. Para reproduzir também o pipeline e o GitOps, entre na sua conta GitHub, abra [o repositório de origem](https://github.com/lucas-braga-dev/fiap_tc_fase_03) e use **Fork** para criar uma cópia na sua conta. Você precisará administrar os Secrets, Variables e permissões dessa cópia.
+
+No PowerShell, vá até a pasta em que deseja guardar o projeto e clone seu fork. Substitua `SEU-USUARIO` pelo proprietário do fork e ajuste o nome do repositório caso o tenha alterado:
+
+```powershell
+git clone https://github.com/SEU-USUARIO/fiap_tc_fase_03.git
+Set-Location fiap_tc_fase_03
+git remote -v
+```
+
+Confira se `origin` aponta para sua cópia: o script de configuração usará esse endereço como origem da aplicação no ArgoCD. Mantenha a branch `main` para acompanhar o fluxo definido no workflow.
+
+Se quiser apenas explorar a aplicação localmente, pode clonar o repositório de origem em vez de criar um fork. Depois da clonagem, siga [Desenvolvimento local](03-OPERACAO.md#desenvolvimento-local), que usa Docker com containers Linux e Docker Compose; as etapas AWS abaixo não são necessárias nesse caso.
 
 ## 1. Preparar
 
@@ -26,7 +44,7 @@ Para descobrir seu IPv4 público no PowerShell, execute `Invoke-RestMethod https
 
 Os Pods usam EKS Pod Identity: o Terraform instala `eks-pod-identity-agent` e associa roles distintas às ServiceAccounts `evaluation-service` e `analytics-service` no namespace `togglemaster`. A confiança de cada role limita cluster, namespace e ServiceAccount; as policies permitem somente as operações necessárias em SQS e DynamoDB. Os nós já recebem `eks-auth:AssumeRoleForPodIdentity` por `AmazonEKSWorkerNodePolicy` e acessam as APIs AWS pelo NAT da rede.
 
-O GitHub Actions usa um usuário IAM exclusivo, criado pelo Terraform com permissão de publicação nos cinco ECR. A access key é criada separadamente após o apply, conforme [deploy/README.md](DEPLOY.md), para não armazenar o segredo no estado Terraform.
+O GitHub Actions usa um usuário IAM exclusivo, criado pelo Terraform com permissão de publicação nos cinco ECR. A access key é criada separadamente após o apply, conforme [guia de deploy](02-DEPLOY.md), para não armazenar o segredo no estado Terraform.
 
 O launch template exige IMDSv2 com hop limit 1 para limitar o acesso dos Pods à role do nó. O agente Pod Identity usa a rede do host e continua acessando essa role; Evaluation e Analytics recebem suas próprias credenciais temporárias pelo agente.
 
@@ -104,7 +122,7 @@ Antes de avançar, confirme os dois nós `Ready`, o agente disponível e duas as
 
 Os outputs incluem endpoints, ARNs dos segredos RDS e roles. As senhas master são gerenciadas pelo RDS no Secrets Manager.
 
-O uso de `Set-Content -Encoding utf8` evita gerar JSON UTF-16 no Windows PowerShell 5.1. Os scripts aceitam UTF-8 com ou sem BOM. Não versione `tmp/eks-outputs.json`. Com as verificações acima aprovadas, siga [o deploy](DEPLOY.md).
+O uso de `Set-Content -Encoding utf8` evita gerar JSON UTF-16 no Windows PowerShell 5.1. Os scripts aceitam UTF-8 com ou sem BOM. Não versione `tmp/eks-outputs.json`. Com as verificações acima aprovadas, siga [o deploy](02-DEPLOY.md).
 
 ## Atualizar
 

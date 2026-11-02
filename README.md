@@ -1,64 +1,62 @@
 # ToggleMaster — Tech Challenge Fase 3
 
-Cinco microsserviços de feature flags com infraestrutura AWS em Terraform, CI DevSecOps no GitHub Actions e entrega contínua por ArgoCD. Somente imagens aprovadas são publicadas no ECR com a tag do commit; o ArgoCD monitora os manifestos e sincroniza o EKS.
+ToggleMaster é uma aplicação de feature flags: permite cadastrar funcionalidades, definir regras de liberação e consultar se uma funcionalidade está habilitada para determinado usuário. O projeto reúne cinco microsserviços, infraestrutura AWS em Terraform e um fluxo DevSecOps com GitHub Actions e ArgoCD.
 
-Os guias usam **PowerShell na máquina local**. O CMD não interpreta `$nome`, `Invoke-RestMethod` ou `ConvertTo-Json`. Não copie o prefixo do prompt (`fiap-tc-fase-03>`).
+## Arquitetura
 
-Comece na raiz deste repositório. Cada guia informa a pasta e os terminais necessários. Para manutenção, diagnóstico e encerramento, consulte [operação](OPERACAO.md) e [solução de problemas](SOLUCAO-DE-PROBLEMAS.md).
+| Serviço | Responsabilidade | Tecnologia e dados no ambiente AWS |
+| --- | --- | --- |
+| Auth | Emissão e validação de chaves de API | Go e PostgreSQL no RDS |
+| Flags | Cadastro e consulta de feature flags | Python/Flask e PostgreSQL no RDS |
+| Targeting | Regras de segmentação por flag | Python/Flask e PostgreSQL no RDS |
+| Evaluation | Decisão de liberação por usuário e publicação de eventos | Go, Redis no ElastiCache e SQS |
+| Analytics | Consumo dos eventos de avaliação e persistência para consulta | Python/Flask, SQS e DynamoDB |
+
+Evaluation consulta Flags e Targeting, mantém os dados em cache no Redis e calcula a decisão para o usuário. Os eventos de avaliação seguem pela fila SQS até Analytics, que os grava no DynamoDB. Auth fornece as chaves usadas nas chamadas autenticadas entre os serviços.
 
 ```mermaid
-flowchart TD
-    A[Clonar projeto] --> B[Configurar AWS e backend S3 separado]
-    B --> C[Revisar Terraform EKS e estimar custos]
-    C --> D[Aplicar Terraform: EKS, 3 RDS, Redis, SQS, DynamoDB e ECR]
-    D --> E[Gerar manifestos AWS e inicializar bancos]
-    E --> F[Configurar GitHub Actions e acesso ECR]
-    F --> G[PR: testes, lint, SAST e SCA]
-    G --> H[Build e scan das 5 imagens]
-    H --> I[Main: publicar imagens aprovadas no ECR]
-    I --> J[CI atualiza tags na pasta GitOps]
-    J --> K[ArgoCD sincroniza os 5 serviços no EKS]
-    K --> L[Emitir chave e testar APIs e eventos]
-    L --> M[Gravar demonstração e entregar relatório]
+flowchart LR
+    C["Cliente"] --> E["Evaluation"]
+    E --> F["Flags"]
+    E --> T["Targeting"]
+    E <--> R["Redis / ElastiCache"]
+    F --> FD[("PostgreSQL / RDS")]
+    T --> TD[("PostgreSQL / RDS")]
+    A["Auth"] --> AD[("PostgreSQL / RDS")]
+    F --> A
+    T --> A
+    E --> Q["SQS"]
+    Q --> N["Analytics"]
+    N --> D[("DynamoDB")]
 ```
 
-## 1. Provisionar
+No ambiente AWS, os serviços rodam no EKS. Evaluation e Analytics recebem credenciais temporárias por EKS Pod Identity. O GitHub Actions executa testes, lint, análise de código e dependências e scan das imagens. Após a aprovação em `main`, publica no ECR as imagens com a tag do commit e atualiza os manifestos no Git. O ArgoCD acompanha esses manifestos e sincroniza o cluster.
 
-Siga [infrasctructure/eks/README.md](PROVISIONAMENTO.md). Use o estado `fase3/eks/terraform.tfstate`.
+O Docker Compose oferece um ambiente de desenvolvimento com PostgreSQL, Redis e LocalStack, que simula SQS e DynamoDB. Esse ambiente permite explorar a aplicação localmente; a reprodução da infraestrutura e do fluxo GitOps usa AWS e GitHub.
 
-Os serviços no EKS usam credenciais temporárias por **EKS Pod Identity**. O GitHub Actions publica no ECR com access key de um usuário IAM exclusivo e restrito, configurada nos GitHub Secrets. Esse fluxo dispensa a criação de providers IAM OIDC na conta.
+## Como seguir a documentação
 
-Revise o custo de EKS, nós, NAT Gateway, três RDS e ElastiCache antes do apply. Nunca misture estados de stacks diferentes.
+Para clonar e testar o projeto, use uma máquina local e siga os passos em **`docs/`**. Os prefixos numéricos indicam a ordem de leitura e execução para reproduzir o ambiente AWS: **01 → 02 → 03**. Cada guia informa os pré-requisitos, a pasta de execução, os comandos e como conferir o resultado.
 
-## 2. Configurar e publicar
+| Ordem | Documento | O que você encontra |
+| --- | --- | --- |
+| 01 | [Provisionamento](docs/01-PROVISIONAMENTO.md) | Preparação da máquina, fork e clonagem, configuração da conta AWS e do estado Terraform, criação da infraestrutura e conexão ao EKS. |
+| 02 | [Deploy](docs/02-DEPLOY.md) | Configuração dos manifestos, inicialização dos bancos, credenciais do pipeline, instalação do ArgoCD, publicação dos serviços e testes de APIs e eventos. Depende do guia 01. |
+| 03 | [Operação](docs/03-OPERACAO.md) | Verificação do ambiente, publicação e reversão de versões, manutenção de credenciais, custos e encerramento dos recursos. Inclui uma seção independente para desenvolvimento local com Compose. |
+| Consulta | [Solução de problemas](docs/SOLUCAO-DE-PROBLEMAS.md) | Diagnóstico de acesso ao cluster, provisionamento, credenciais, imagens, scans e testes HTTP. Consulte quando uma etapa falhar. |
 
-Siga [deploy/README.md](DEPLOY.md), na ordem:
+Se seu objetivo for somente executar a aplicação localmente, faça a preparação e a clonagem descritas no início do guia 01 e siga a seção [Desenvolvimento local](docs/03-OPERACAO.md#desenvolvimento-local) do guia 03. Esse caminho dispensa o provisionamento AWS e o deploy no EKS.
 
-1. Gere os manifestos com os outputs Terraform.
-2. Inicialize bancos e Secrets.
-3. Crie a access key do usuário IAM de publicação e configure os Secrets e Variables do GitHub.
-4. Instale ArgoCD no EKS, publique em `main` e espere `publish` e `gitops` passarem antes de aplicar a Application. Confirme `Synced/Healthy` e Pods `Running`.
-5. Emita `SERVICE_API_KEY` e teste o fluxo.
+## Onde encontrar cada parte
 
-## 3. Entregar
-
-Use o [roteiro de apresentação](ROTEIRO-APRESENTACAO.md) para gravar o vídeo de até 20 minutos e preencha o [relatório de entrega](ENTREGA-FASE-3.md). Os [requisitos oficiais](<POSTECH - Tech Challenge - Fase 3.pdf>) definem as evidências obrigatórias.
-
-## Operação e desenvolvimento
-
-O [guia de operação](OPERACAO.md) cobre verificação de saúde, publicação, rollback, credenciais, custos e encerramento. Não versione `.env`, access keys, Secrets, estados, planos ou outputs Terraform.
-
-Para desenvolvimento, o [Compose](../docker-compose.yaml) usa PostgreSQL, Redis e LocalStack. Configure seu `.env` a partir de [`.env.example`](../.env.example) antes de executar `docker compose up -d --build`. Código, contratos de API e testes ficam em `apps-togglemaster/src/<servico>`; o workflow define os testes e gates de entrega.
-
-## Arquivos
-
-| Caminho | Uso |
+| Caminho | Conteúdo |
 | --- | --- |
-| [infrasctructure/eks](../infrasctructure/eks/) | Cenário da Fase 3; conta pessoal |
-| [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) | Testes, lint, SAST/SCA, scan, ECR e atualização GitOps |
-| [gitops-manifests/aws](../gitops-manifests/aws/) | Cinco serviços com RDS, ElastiCache e AWS reais |
-| [gitops-manifests/argocd/application.yaml](../gitops-manifests/argocd/application.yaml) | Sync automático com prune e self-heal |
-| [docker-compose.yaml](../docker-compose.yaml) | Desenvolvimento local |
-| [scripts](../scripts/) | Configuração, bootstrap, emissão de chave e atualização de imagens |
-| [docs/OPERACAO.md](OPERACAO.md) | Gestão do ambiente EKS e encerramento |
-| [docs/ROTEIRO-APRESENTACAO.md](ROTEIRO-APRESENTACAO.md) | Demonstração e evidências da entrega |
+| [apps-togglemaster/src](apps-togglemaster/src/) | Código dos cinco serviços, handlers das APIs, testes, Dockerfiles e schemas SQL. |
+| [infrasctructure/eks](infrasctructure/eks/) | Terraform do ambiente AWS, exemplos de variáveis e backend, outputs e testes da infraestrutura. |
+| [.github/workflows/deploy.yml](.github/workflows/deploy.yml) | Validações do CI, verificações de segurança, publicação no ECR e atualização das tags no GitOps. |
+| [gitops-manifests/aws](gitops-manifests/aws/) | Manifestos Kubernetes e Kustomization dos cinco serviços. |
+| [gitops-manifests/argocd/application.yaml](gitops-manifests/argocd/application.yaml) | Origem Git e política de sincronização da aplicação no ArgoCD. |
+| [scripts](scripts/) | Automação dos manifestos AWS, bootstrap dos bancos, emissão de chave e atualização de imagens. |
+| [deploy](deploy/) | SQL e recursos auxiliares para inicialização dos bancos no Compose e no EKS. |
+| [docker-compose.yaml](docker-compose.yaml) e [.env.example](.env.example) | Definição do ambiente local e exemplo das suas configurações. |
+| [docs](docs/) | Guias de reprodução, operação e diagnóstico do projeto. |
