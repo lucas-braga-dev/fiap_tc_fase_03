@@ -1,6 +1,6 @@
 # Operação DevSecOps
 
-Execute no PowerShell local, na raiz do repositório, usando sua identidade administrativa AWS. O usuário IAM do GitHub é exclusivo para publicação no ECR. Para a primeira instalação, use os guias de [infraestrutura](../infrasctructure/eks/README.md) e [deploy](../deploy/README.md).
+Execute no PowerShell local, na raiz do repositório, usando sua identidade administrativa AWS. O usuário IAM do GitHub é exclusivo para publicação no ECR. Para a primeira instalação, use os guias de [infraestrutura](PROVISIONAMENTO.md) e [deploy](DEPLOY.md).
 
 ## Verificar o ambiente
 

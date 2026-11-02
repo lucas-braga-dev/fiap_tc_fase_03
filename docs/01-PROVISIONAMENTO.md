@@ -26,13 +26,13 @@ Para descobrir seu IPv4 público no PowerShell, execute `Invoke-RestMethod https
 
 Os Pods usam EKS Pod Identity: o Terraform instala `eks-pod-identity-agent` e associa roles distintas às ServiceAccounts `evaluation-service` e `analytics-service` no namespace `togglemaster`. A confiança de cada role limita cluster, namespace e ServiceAccount; as policies permitem somente as operações necessárias em SQS e DynamoDB. Os nós já recebem `eks-auth:AssumeRoleForPodIdentity` por `AmazonEKSWorkerNodePolicy` e acessam as APIs AWS pelo NAT da rede.
 
-O GitHub Actions usa um usuário IAM exclusivo, criado pelo Terraform com permissão de publicação nos cinco ECR. A access key é criada separadamente após o apply, conforme [deploy/README.md](../../deploy/README.md), para não armazenar o segredo no estado Terraform.
+O GitHub Actions usa um usuário IAM exclusivo, criado pelo Terraform com permissão de publicação nos cinco ECR. A access key é criada separadamente após o apply, conforme [deploy/README.md](DEPLOY.md), para não armazenar o segredo no estado Terraform.
 
 O launch template exige IMDSv2 com hop limit 1 para limitar o acesso dos Pods à role do nó. O agente Pod Identity usa a rede do host e continua acessando essa role; Evaluation e Analytics recebem suas próprias credenciais temporárias pelo agente.
 
 Essa configuração não cria providers IAM OIDC. Ela evita a dependência das ações `iam:*Provider*` bloqueadas na experiência simplificada da AWS; outras restrições da conta ainda podem impedir recursos. Referências: [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html) e [políticas gerenciadas para projetos](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html).
 
-Na experiência básica/simplificada, a AWS gerencia as SCPs da organização. Ser dono do projeto não garante acesso à conta de gerenciamento ou à edição dessas políticas. `AccessDenied` com `explicit deny in a service control policy` não é corrigido adicionando `AdministratorAccess`. O fluxo deste repositório foi adaptado para dispensar providers OIDC; não é necessário ativar os recursos avançados apenas para seguir esse fluxo. Veja [as restrições e a solução adotada](../../docs/SOLUCAO-DE-PROBLEMAS.md#bloqueio-de-provider-oidc-por-scp).
+Na experiência básica/simplificada, a AWS gerencia as SCPs da organização. Ser dono do projeto não garante acesso à conta de gerenciamento ou à edição dessas políticas. `AccessDenied` com `explicit deny in a service control policy` não é corrigido adicionando `AdministratorAccess`. O fluxo deste repositório foi adaptado para dispensar providers OIDC; não é necessário ativar os recursos avançados apenas para seguir esse fluxo. Veja [as restrições e a solução adotada](SOLUCAO-DE-PROBLEMAS.md#bloqueio-de-provider-oidc-por-scp).
 
 Não versione `backend.hcl` nem `terraform.tfvars`.
 
@@ -100,11 +100,11 @@ terraform -chdir=infrasctructure/eks output -json | Set-Content -Encoding utf8 t
 
 Use a identidade AWS que criou o cluster. Se seu IP mudar, atualize `admin_cidrs` e aplique o Terraform.
 
-Antes de avançar, confirme os dois nós `Ready`, o agente disponível e duas associações Pod Identity no namespace `togglemaster`. `i/o timeout` ao executar kubectl indica falha de conexão; compare seu IP público com os CIDRs permitidos seguindo [o diagnóstico de acesso](../../docs/SOLUCAO-DE-PROBLEMAS.md#kubectl-com-io-timeout). Não precisa recriar o cluster para corrigir o IP permitido.
+Antes de avançar, confirme os dois nós `Ready`, o agente disponível e duas associações Pod Identity no namespace `togglemaster`. `i/o timeout` ao executar kubectl indica falha de conexão; compare seu IP público com os CIDRs permitidos seguindo [o diagnóstico de acesso](SOLUCAO-DE-PROBLEMAS.md#kubectl-com-io-timeout). Não precisa recriar o cluster para corrigir o IP permitido.
 
 Os outputs incluem endpoints, ARNs dos segredos RDS e roles. As senhas master são gerenciadas pelo RDS no Secrets Manager.
 
-O uso de `Set-Content -Encoding utf8` evita gerar JSON UTF-16 no Windows PowerShell 5.1. Os scripts aceitam UTF-8 com ou sem BOM. Não versione `tmp/eks-outputs.json`. Com as verificações acima aprovadas, siga [o deploy](../../deploy/README.md).
+O uso de `Set-Content -Encoding utf8` evita gerar JSON UTF-16 no Windows PowerShell 5.1. Os scripts aceitam UTF-8 com ou sem BOM. Não versione `tmp/eks-outputs.json`. Com as verificações acima aprovadas, siga [o deploy](DEPLOY.md).
 
 ## Atualizar
 

@@ -79,3 +79,6 @@ temp/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local auxiliary material (may contain credentials and state)
+/tc-fase-03-auxiliares/

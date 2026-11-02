@@ -2,7 +2,7 @@
 
 Execute no **PowerShell da sua máquina local, na raiz do projeto**. Todos os comandos deste guia usam esse terminal, exceto o exemplo explicitamente marcado como Bash. No CMD, abra uma sessão com `powershell` antes de continuar e confirme a pasta com `Get-Location`.
 
-Tenha o EKS provisionado, contexto kubectl correto, nós `Ready` e agente Pod Identity disponível. Se ainda não conectou ou gerou os outputs, siga [a etapa 3 do guia EKS](../infrasctructure/eks/README.md#3-conectar-ao-cluster). Timeout de conexão deve ser resolvido antes de continuar.
+Tenha o EKS provisionado, contexto kubectl correto, nós `Ready` e agente Pod Identity disponível. Se ainda não conectou ou gerou os outputs, siga [a etapa 3 do guia EKS](PROVISIONAMENTO.md#3-conectar-ao-cluster). Timeout de conexão deve ser resolvido antes de continuar.
 
 Execute as etapas em ordem. Em uma retomada, confira o que já está concluído: o bootstrap da etapa 2 só deve rodar uma vez; a emissão da chave da etapa 5 só precisa ser repetida para gerar uma nova chave. Não refaça bancos e Secrets para corrigir imagens ou acesso ao cluster.
 
@@ -136,7 +136,7 @@ kubectl get pods -n togglemaster
 
 O ArgoCD aplica os manifestos; o CI publica as imagens e atualiza as tags no Git.
 
-Confira a Application `togglemaster` como `Synced/Healthy`. Na interface, use **Refresh → Sync** se ainda não sincronizou. Espere os cinco Deployments terem réplicas disponíveis e os Pods ficarem `Running`, com containers `1/1` prontos. `kubectl get pods -n togglemaster -w` acompanha as mudanças continuamente; use **Ctrl+C** para voltar ao prompt. Se aparecer `ImagePullBackOff`, veja [o diagnóstico de imagens](../docs/SOLUCAO-DE-PROBLEMAS.md#errimagepull-ou-imagepullbackoff).
+Confira a Application `togglemaster` como `Synced/Healthy`. Na interface, use **Refresh → Sync** se ainda não sincronizou. Espere os cinco Deployments terem réplicas disponíveis e os Pods ficarem `Running`, com containers `1/1` prontos. `kubectl get pods -n togglemaster -w` acompanha as mudanças continuamente; use **Ctrl+C** para voltar ao prompt. Se aparecer `ImagePullBackOff`, veja [o diagnóstico de imagens](SOLUCAO-DE-PROBLEMAS.md#errimagepull-ou-imagepullbackoff).
 
 Para abrir a interface, execute na máquina local e mantenha esse terminal aberto:
 
@@ -256,4 +256,4 @@ Se houver falha de credenciais AWS nos serviços, confira o DaemonSet `eks-pod-i
 - Para reverter, reverta o código e publique uma nova versão.
 - Se um scan detectar CRITICAL, corrija a dependência/imagem; não remova o bloqueio.
 - Consulte falhas com `kubectl logs -n togglemaster deployment/<servico> --tail=100`.
-- Consulte [problemas e correções](../docs/SOLUCAO-DE-PROBLEMAS.md) para timeout, imagem `bootstrap`, falha de scan, autenticação e comandos Windows.
+- Consulte [problemas e correções](SOLUCAO-DE-PROBLEMAS.md) para timeout, imagem `bootstrap`, falha de scan, autenticação e comandos Windows.

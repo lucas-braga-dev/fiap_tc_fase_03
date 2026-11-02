@@ -1,6 +1,6 @@
 # Diagnóstico do ambiente
 
-Use PowerShell na máquina local, na raiz do repositório. Preserve backend e estado Terraform. Para procedimentos recorrentes, consulte [operação](OPERACAO.md); para a implantação inicial, [deploy](../deploy/README.md).
+Use PowerShell na máquina local, na raiz do repositório. Preserve backend e estado Terraform. Para procedimentos recorrentes, consulte [operação](OPERACAO.md); para a implantação inicial, [deploy](DEPLOY.md).
 
 ## Comandos Windows
 
